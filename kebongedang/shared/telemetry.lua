@@ -284,4 +284,10 @@ function telemetry.setWebhookUrl(url)
     WEBHOOK_URL = url
 end
 
-return telemetry
+-- ⭐ Bungkus jadi function biar cocok dengan pemanggilan di init.lua
+-- init.lua memanggil: tchunk()(target)
+return function(target)
+    -- target = "garden" / "trade"
+    telemetry.start()
+    return telemetry
+end
