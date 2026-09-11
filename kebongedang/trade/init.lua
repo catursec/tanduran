@@ -34,6 +34,11 @@ do
 			if okr and type(tbl) == "table" then FILES = tbl end
 		end
 	end
+	if FILES then
+		print("[CeszParadiseHub/trade] ✓ Bundle loaded sukses (Mode Kilat)")
+	else
+		warn("[CeszParadiseHub/trade] ⚠ Bundle gagal dimuat, beralih ke download per-modul HTTP (lambat)...")
+	end
 end
 
 local function fetch(relPath)
