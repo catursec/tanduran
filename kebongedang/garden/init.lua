@@ -20,6 +20,11 @@ do
 			if okr and type(tbl) == "table" then FILES = tbl end
 		end
 	end
+	if FILES then
+		print("[CeszParadiseHub/garden] ✓ Bundle loaded sukses (Mode Kilat)")
+	else
+		warn("[CeszParadiseHub/garden] ⚠ Bundle gagal dimuat, beralih ke download per-modul HTTP (lambat)...")
+	end
 end
 
 -- Ambil source modul: dari bundle (memori) kalau ada, else HttpGet (dev/fallback).
