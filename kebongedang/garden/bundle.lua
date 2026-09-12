@@ -1,6 +1,6 @@
 -- AUTO-GENERATED oleh tools/bundle.js — JANGAN edit manual.
 -- Edit modul-nya langsung, terus run `node tools/bundle.js`.
--- 43 modul, di-generate 2026-09-12T03:08:28.487Z
+-- 43 modul, di-generate 2026-09-12T16:42:12.566Z
 return {
 	["app.lua"] = [=[
 --[[ app.lua — init akhir garden: default tab Inventory + auto-resume automation. ]]
@@ -191,6 +191,12 @@ return function(ctx)
 		task.wait(2.0)
 		ctx.startHatch()
 		ctx.log("Auto-resume: Auto Hatch ON.")
+	end
+
+	-- auto-resume Egg Minus Watcher kalau sebelumnya aktif
+	if CFG.hatchRejoinMinusEnabled and ctx.startEggMinusWatcher then
+		ctx.startEggMinusWatcher()
+		ctx.log("Auto-resume: Egg Minus Watcher ON.")
 	end
 
 	-- auto-resume Auto Favourite Pets kalau sebelumnya aktif
@@ -4736,21 +4742,60 @@ return function(ctx)
 		return cur, maxCap
 	end
 
-	-- Parse nama tool egg & jumlahnya (mendukung angka positif dan minus misal "Paradise Egg x-20")
+	-- Parse nama tool egg & jumlahnya (mendukung angka positif dan minus misal "Paradise Egg x-20", "Paradise Egg -20", "x -20", "[x-20]", dll)
 	local function parseEggTool(t)
-		if not (t:IsA("Tool") and not t:GetAttribute("PET_UUID") and tostring(t.Name):find("Egg", 1, true)) then
+		if not (t and t:IsA("Tool") and not t:GetAttribute("PET_UUID")) then
 			return nil, 0
 		end
 		local raw = tostring(t.Name)
-		local base, cnt = raw:match("^(.-)%s*x%s*(%-?%d+)$")
+		local rawLower = raw:lower()
+		local targetEgg = CFG.hatchEggName
+		local hasEgg = rawLower:find("egg", 1, true) or (targetEgg and rawLower:find(targetEgg:lower(), 1, true))
+		if not hasEgg then
+			return nil, 0
+		end
+
+		-- Normalize unicode dashes/minuses ke ASCII "-"
+		-- \226\128\147 = en-dash (–), \226\128\148 = em-dash (—), \226\136\146 = minus sign (−)
+		local norm = raw:gsub("[\226\128\147\226\128\148\226\136\146]", "-")
+
+		-- Cek attribute / child Value jika ada
+		local attrVal = t:GetAttribute("Quantity") or t:GetAttribute("Count") or t:GetAttribute("Amount")
+		if not attrVal then
+			local qChild = t:FindFirstChild("Quantity") or t:FindFirstChild("Count") or t:FindFirstChild("Amount")
+			if qChild and (qChild:IsA("IntValue") or qChild:IsA("NumberValue")) then
+				attrVal = qChild.Value
+			end
+		end
+
+		-- Ekstraksi base & count dari string
+		-- Format 1: "Egg Name x-20", "Egg Name x -20", "Egg Name [X-20]", "Egg Name (x - 20)"
+		local base, cnt = norm:match("^(.-)%s*[%[%(]?%s*[xX]%s*([%-+]?%s*%d+)%s*[%]%)]?$")
+		-- Format 2: "Egg Name -20", "Egg Name [-20]", "Egg Name (-20)", "Egg Name - 20"
 		if not cnt then
-			base, cnt = raw:match("^(.-)%s+(%-%d+)$")
+			base, cnt = norm:match("^(.-)%s*[%[%(]?%s*([%-+]%s*%d+)%s*[%]%)]?$")
 		end
-		if cnt and tonumber(cnt) then
-			base = base and base:match("^%s*(.-)%s*$") or raw
-			return base, tonumber(cnt)
+		-- Format 3: "Egg Name [20]" atau "Egg Name (20)"
+		if not cnt then
+			base, cnt = norm:match("^(.-)%s*[%[%(]%s*([%-+]?%s*%d+)%s*[%]%)]$")
 		end
-		return raw:match("^%s*(.-)%s*$"), 1
+
+		if cnt then
+			local num = tonumber((cnt:gsub("%s+", "")))
+			if num then
+				-- Bersihkan base dari bracket/tanda sisa
+				base = base and base:gsub("[%[%(]%s*$", ""):match("^%s*(.-)%s*$") or raw
+				return base, num
+			end
+		end
+
+		-- Jika name tidak ada format angka, tapi ada attribute bernilai angka
+		if attrVal and tonumber(attrVal) then
+			local cleanBase = norm:match("^%s*(.-)%s*$")
+			return cleanBase, tonumber(attrVal)
+		end
+
+		return norm:match("^%s*(.-)%s*$"), 1
 	end
 
 	-- Daftar egg di backpack + jumlah (buat dropdown Egg Configuration).
@@ -5098,9 +5143,9 @@ return function(ctx)
 			return targetEgg, counts[targetEgg], thresh
 		end
 
-		-- 2. Parsial match egg target
+		-- 2. Parsial match egg target (dua arah)
 		for name, qty in pairs(counts) do
-			if name:lower():find(targetEgg:lower(), 1, true) and qty <= thresh then
+			if (name:lower():find(targetEgg:lower(), 1, true) or targetEgg:lower():find(name:lower(), 1, true)) and qty <= thresh then
 				return name, qty, thresh
 			end
 		end
@@ -5380,8 +5425,9 @@ return function(ctx)
 		local curEgg = 0
 		for _, src in ipairs({ LP:FindFirstChildOfClass("Backpack"), LP.Character }) do
 			if src then for _, t in ipairs(src:GetChildren()) do
-				if t:IsA("Tool") and not t:GetAttribute("PET_UUID") and tostring(t.Name):find(eggName, 1, true) then
-					local _, cnt = tostring(t.Name):match("^(.-)%s*x(%d+)$"); if tonumber(cnt) then curEgg = tonumber(cnt) end
+				local base, cnt = parseEggTool(t)
+				if base and (base == eggName or base:find(eggName, 1, true)) then
+					curEgg = curEgg + cnt
 				end
 			end end
 		end
@@ -5410,17 +5456,12 @@ return function(ctx)
 		local maxP = CFG.hatchMaxPlaced or 9
 		local placed = placedEggCount()
 
-		-- CHECK EGG MINUS:
-		-- Jika Auto Sell mati: langsung cek tiap tick.
-		-- Jika Auto Sell hidup tapi garden kosong & pet kosong (stuck): langsung cek agar tidak idle selamanya.
+		-- CHECK EGG MINUS: Cek langsung tiap tick jika fitur aktif (tanpa syarat bpc/placed/sell)
 		if CFG.hatchRejoinMinusEnabled then
-			local shouldCheckDirectly = (not CFG.autoSellEnabled) or (placed == 0 and bpc == 0)
-			if shouldCheckDirectly then
-				local minusEgg, minusAmt, minusThresh = checkEggMinus()
-				if minusEgg and minusAmt then
-					handleEggMinus(minusEgg, minusAmt, minusThresh)
-					return
-				end
+			local minusEgg, minusAmt, minusThresh = checkEggMinus()
+			if minusEgg and minusAmt then
+				handleEggMinus(minusEgg, minusAmt, minusThresh)
+				return
 			end
 		end
 
@@ -5639,6 +5680,9 @@ return function(ctx)
 		ctx.state.hatchStartTime = os.time()
 		ctx.state.hatchCycleStartTime = os.time()
 		task.spawn(loop)
+		if CFG.hatchRejoinMinusEnabled and ctx.startEggMinusWatcher then
+			ctx.startEggMinusWatcher()
+		end
 	end
 	function ctx.stopHatch()
 		ctx.state.hatchId = (ctx.state.hatchId or 0) + 1
@@ -5668,6 +5712,29 @@ return function(ctx)
 	end
 	function ctx.stopAutoFavorite()
 		ctx.state.autoFavId = (ctx.state.autoFavId or 0) + 1
+	end
+
+	----------------------------------------------------------------- EGG MINUS WATCHER
+	-- Watcher independen jika Auto Rejoin on Egg Minus diaktifkan, agar tetap terpantau
+	-- meskipun Auto Hatch sedang idle atau di luar siklus hatch.
+	local function eggMinusWatcherLoop(myId)
+		while CFG.hatchRejoinMinusEnabled and ctx.alive() and ctx.state.eggMinusWatchId == myId do
+			local minusEgg, minusAmt, minusThresh = checkEggMinus()
+			if minusEgg and minusAmt then
+				handleEggMinus(minusEgg, minusAmt, minusThresh)
+				return
+			end
+			task.wait(1.5)
+		end
+	end
+
+	function ctx.startEggMinusWatcher()
+		ctx.state.eggMinusWatchId = (ctx.state.eggMinusWatchId or 0) + 1
+		local myId = ctx.state.eggMinusWatchId
+		task.spawn(function() eggMinusWatcherLoop(myId) end)
+	end
+	function ctx.stopEggMinusWatcher()
+		ctx.state.eggMinusWatchId = (ctx.state.eggMinusWatchId or 0) + 1
 	end
 end
 ]=],
@@ -11101,7 +11168,14 @@ return function(ctx)
 			function() return tostring(CFG.hatchTeamDelay or 5) end, function(t) CFG.hatchTeamDelay = tonumber(t) or 5; persist() end, 4)
 		makeToggle(hEgg, "Auto Rejoin on Egg Minus", "Auto rejoin server jika egg minus mencapai batas",
 			function() return CFG.hatchRejoinMinusEnabled end,
-			function(v) CFG.hatchRejoinMinusEnabled = v; persist() end, 5)
+			function(v)
+				CFG.hatchRejoinMinusEnabled = v; persist()
+				if v and ctx.startEggMinusWatcher then
+					ctx.startEggMinusWatcher()
+				elseif not v and ctx.stopEggMinusWatcher then
+					ctx.stopEggMinusWatcher()
+				end
+			end, 5)
 		makeInput(hEgg, "Egg Minus Threshold", "Batas jumlah minus untuk trigger rejoin (misal: 20)",
 			function() return tostring(CFG.hatchRejoinMinusThreshold or 20) end,
 			function(t) CFG.hatchRejoinMinusThreshold = tonumber(t) or 20; persist() end, 6)
