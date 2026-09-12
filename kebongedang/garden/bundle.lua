@@ -1,6 +1,6 @@
 -- AUTO-GENERATED oleh tools/bundle.js — JANGAN edit manual.
 -- Edit modul-nya langsung, terus run `node tools/bundle.js`.
--- 43 modul, di-generate 2026-09-12T01:09:10.218Z
+-- 43 modul, di-generate 2026-09-12T03:08:28.487Z
 return {
 	["app.lua"] = [=[
 --[[ app.lua — init akhir garden: default tab Inventory + auto-resume automation. ]]
@@ -5034,7 +5034,7 @@ return function(ctx)
 
 	----------------------------------------------------------------- Auto Rejoin on Egg Minus
 	local function sendRejoinMinusWebhook(eggName, amt, thresh)
-		local url = (CFG.hatchWebhookUrl and CFG.hatchWebhookUrl ~= "" and CFG.hatchWebhookUrl) or CFG.webhookUrl
+		local url = CFG.webhookUrl
 		if not url or url == "" or not ctx.sendWebhook then return end
 		local notifyText = ("auto rejoin on, %s %d"):format(eggName, amt)
 		local payload = {
@@ -11105,11 +11105,6 @@ return function(ctx)
 		makeInput(hEgg, "Egg Minus Threshold", "Batas jumlah minus untuk trigger rejoin (misal: 20)",
 			function() return tostring(CFG.hatchRejoinMinusThreshold or 20) end,
 			function(t) CFG.hatchRejoinMinusThreshold = tonumber(t) or 20; persist() end, 6)
-		makeInput(hEgg, "Hatch Webhook URL", "URL webhook Discord buat notifikasi (opsional, fallback ke Misc)",
-			function() return tostring(CFG.hatchWebhookUrl or "") end,
-			function(t) CFG.hatchWebhookUrl = t; persist() end, 7)
-		makeButton(hEgg, "Test Rejoin Webhook", "Kirim contoh notifikasi rejoin ke Discord",
-			function() task.spawn(function() if ctx.testRejoinWebhook then ctx.testRejoinWebhook() end end) end, 8)
 
 		-- Bronto Configuration (kapan pakai Bronto team buat +30% berat)
 		local hBr = makeAccordion(hatchPage, "Bronto Configuration", 4, true)
