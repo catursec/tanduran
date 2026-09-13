@@ -1,6 +1,6 @@
 -- AUTO-GENERATED oleh tools/bundle.js — JANGAN edit manual.
 -- Edit modul-nya langsung, terus run `node tools/bundle.js`.
--- 43 modul, di-generate 2026-09-13T01:38:11.393Z
+-- 43 modul, di-generate 2026-09-13T01:48:50.406Z
 return {
 	["app.lua"] = [=[
 --[[ app.lua — init akhir garden: default tab Inventory + auto-resume automation. ]]
@@ -5475,12 +5475,19 @@ return function(ctx)
 		local maxP = CFG.hatchMaxPlaced or 9
 		local placed = placedEggCount()
 
-		-- CHECK EGG MINUS: Cek langsung tiap tick jika fitur aktif (seperti di webhook: Current Egg: 200 (-20))
+		-- CHECK EGG MINUS (Fallback saat Auto Sell dimatikan atau kondisi stuck total):
+		-- Jika Auto Sell mati, atau stuck (tidak ada egg di inventory, plot kosong, dan tidak ada pet untuk di-sell),
+		-- cek langsung agar tidak idle selamanya.
+		-- Jika Auto Sell aktif, pengecekan UTAMA dilakukan SETELAH sell di bawah agar egg bisa balik dulu (Seal the Deal recovery).
 		if CFG.hatchRejoinMinusEnabled then
-			local minusEgg, curAmt, netResult, minusThresh = checkEggMinus()
-			if minusEgg and netResult then
-				handleEggMinus(minusEgg, curAmt, netResult, minusThresh)
-				return
+			local curEgg = eggAmount(CFG.hatchEggName or "Rare Egg")
+			local isStuck = (curEgg <= 0 and placed == 0 and bpc == 0)
+			if not CFG.autoSellEnabled or isStuck then
+				local minusEgg, curAmt, netResult, minusThresh = checkEggMinus()
+				if minusEgg and netResult then
+					handleEggMinus(minusEgg, curAmt, netResult, minusThresh)
+					return
+				end
 			end
 		end
 
@@ -5506,10 +5513,12 @@ return function(ctx)
 			ctx.state.hatchReportSellProg = cycle - (ctx.state.hatchLastSellCycle or 0)
 			ctx.state.hatchLastSellCycle = cycle
 
-			-- Tunggu 1.5 detik agar notifikasi Lucky Pet / recovery Seal the Deal masuk ke inventory
-			task.wait(1.5)
+			-- Tunggu 2 detik agar notifikasi Lucky Pet / recovery Seal the Deal selesai masuk ke inventory
+			task.wait(2.0)
 
-			-- CEK EGG MINUS SETELAH SIKLUS AUTO SELL SELESAI
+			-- CEK EGG MINUS SETELAH SIKLUS AUTO SELL SELESAI:
+			-- Memberi kesempatan Sell Team mengembalikan egg (Seal recovery) terlebih dahulu.
+			-- Jika setelah sell selesai egg masih minus melebihi threshold -> langsung auto rejoin!
 			if CFG.hatchRejoinMinusEnabled then
 				local minusEgg, curAmt, netResult, minusThresh = checkEggMinus()
 				if minusEgg and netResult then
@@ -5738,12 +5747,15 @@ return function(ctx)
 	-- meskipun Auto Hatch sedang idle atau di luar siklus hatch.
 	local function eggMinusWatcherLoop(myId)
 		while CFG.hatchRejoinMinusEnabled and ctx.alive() and ctx.state.eggMinusWatchId == myId do
-			local minusEgg, curAmt, netResult, minusThresh = checkEggMinus()
-			if minusEgg and netResult then
-				handleEggMinus(minusEgg, curAmt, netResult, minusThresh)
-				return
+			-- Jika Auto Hatch aktif dan Auto Sell aktif, biarkan loop Auto Hatch yang mengecek setelah sell
+			if not CFG.hatchEnabled or not CFG.autoSellEnabled then
+				local minusEgg, curAmt, netResult, minusThresh = checkEggMinus()
+				if minusEgg and netResult then
+					handleEggMinus(minusEgg, curAmt, netResult, minusThresh)
+					return
+				end
 			end
-			task.wait(1.0)
+			task.wait(2.0)
 		end
 	end
 
