@@ -1,6 +1,6 @@
 -- AUTO-GENERATED oleh tools/bundle.js — JANGAN edit manual.
 -- Edit modul-nya langsung, terus run `node tools/bundle.js`.
--- 43 modul, di-generate 2026-09-13T01:48:50.406Z
+-- 43 modul, di-generate 2026-09-13T16:22:29.682Z
 return {
 	["app.lua"] = [=[
 --[[ app.lua — init akhir garden: default tab Inventory + auto-resume automation. ]]
@@ -193,10 +193,10 @@ return function(ctx)
 		ctx.log("Auto-resume: Auto Hatch ON.")
 	end
 
-	-- auto-resume Egg Minus Watcher kalau sebelumnya aktif
-	if CFG.hatchRejoinMinusEnabled and ctx.startEggMinusWatcher then
+	-- auto-resume Egg Rejoin Watcher kalau sebelumnya aktif
+	if (CFG.hatchRejoinMinusEnabled or CFG.hatchRejoinPlusEnabled) and ctx.startEggMinusWatcher then
 		ctx.startEggMinusWatcher()
-		ctx.log("Auto-resume: Egg Minus Watcher ON.")
+		ctx.log("Auto-resume: Egg Rejoin Watcher ON.")
 	end
 
 	-- auto-resume Auto Favourite Pets kalau sebelumnya aktif
@@ -315,6 +315,8 @@ return function(ctx)
 		hatchAlertEnabled = false,    -- kirim alert pas pet masuk filter bronto
 		hatchRejoinMinusEnabled   = false, -- Auto rejoin kalau egg minus
 		hatchRejoinMinusThreshold = 20,    -- Threshold jumlah minus untuk trigger rejoin (misal: 20 -> <= -20)
+		hatchRejoinPlusEnabled    = false, -- Auto rejoin kalau egg bertambah (plus)
+		hatchRejoinPlusThreshold  = 20,    -- Threshold jumlah plus untuk trigger rejoin (misal: 20 -> >= +20)
 		-- bronto config: egg yg pending pet-nya cocok -> hatch pakai Bronto team (+30% berat)
 		brontoSpecialPets    = {},   -- set "Pet - Egg" (special: wajib bronto)
 		brontoSpecialWeight  = 0,    -- special cuma kalau weight > ini (0 = ga difilter)
@@ -607,6 +609,8 @@ return function(ctx)
 			CFG.hatchAlertEnabled = st.hatchAlertEnabled or false
 			CFG.hatchRejoinMinusEnabled   = st.hatchRejoinMinusEnabled or false
 			CFG.hatchRejoinMinusThreshold = tonumber(st.hatchRejoinMinusThreshold) or 20
+			CFG.hatchRejoinPlusEnabled    = st.hatchRejoinPlusEnabled or false
+			CFG.hatchRejoinPlusThreshold  = tonumber(st.hatchRejoinPlusThreshold) or 20
 			CFG.brontoSpecialPets    = tbl(st.brontoSpecialPets)
 			CFG.brontoSpecialWeight  = tonumber(st.brontoSpecialWeight) or 0
 			CFG.brontoUniversalTypes = tbl(st.brontoUniversalTypes)
@@ -5079,29 +5083,48 @@ return function(ctx)
 
 	local function eggAmount(eggName)
 		local n = 0
+		local target = tostring(eggName or ""):lower():match("^%s*(.-)%s*$")
+		if target == "" then return 0 end
+		local safeTarget = target:gsub("([%%%^%$%(%)%%.%[%]%*%+%-%?])", "%%%1")
 		for _, src in ipairs({ LP:FindFirstChildOfClass("Backpack"), LP.Character }) do
 			if src then for _, t in ipairs(src:GetChildren()) do
 				local base, cnt = parseEggTool(t)
-				if base and (base == eggName or base:find(eggName, 1, true)) then
-					n = n + cnt
+				if base then
+					local b = tostring(base):lower():match("^%s*(.-)%s*$")
+					if b == target then
+						n = n + cnt
+					elseif b:find("%f[%a]" .. safeTarget .. "%f[%A]") then
+						n = n + cnt
+					end
 				end
 			end end
 		end
 		return n
 	end
 
-	----------------------------------------------------------------- Auto Rejoin on Egg Minus
-	local function sendRejoinMinusWebhook(eggName, curAmt, netResult, thresh)
+	local function totalEggCount(eggName)
+		return eggAmount(eggName) + placedEggCount()
+	end
+
+	----------------------------------------------------------------- Auto Rejoin on Egg Threshold (Minus / Plus)
+	local function sendRejoinWebhook(rType, eggName, curAmt, netResult, thresh)
 		local url = CFG.webhookUrl
 		if not url or url == "" or not ctx.sendWebhook then return end
 		local diffStr = (type(netResult) == "number") and (("%+d"):format(netResult)) or tostring(netResult)
+		local isPlus = (rType == "Plus")
+		local title = isPlus and "🔄 CeszParadise — Auto Rejoin (Egg Plus)" or "🔄 CeszParadise — Auto Rejoin (Egg Minus)"
+		local color = isPlus and 3066993 or 16744272
+		local sign = isPlus and "+" or "-"
 		local notifyText = ("auto rejoin on, %s %d (%s)"):format(eggName, curAmt, diffStr)
+		local desc = isPlus
+			and ("> **Status :** `%s`\n> Penambahan egg terdeteksi surplus melebihi ambang batas (`+%d`)! Melakukan auto rejoin ke server..."):format(notifyText, thresh)
+			or ("> **Status :** `%s`\n> Pengurangan egg terdeteksi minus melebihi ambang batas (`-%d`)! Melakukan auto rejoin ke server..."):format(notifyText, thresh)
 		local payload = {
 			content = ("@everyone ⚠️ **Auto Rejoin** — `%s`"):format(notifyText),
 			embeds = { {
-				title = "🔄 CeszParadise — Auto Rejoin (Egg Minus)",
-				color = 16744272,
-				description = ("> **Status :** `%s`\n> Pengurangan egg terdeteksi minus melebihi ambang batas (`-%d`)! Melakukan auto rejoin ke server..."):format(notifyText, thresh),
+				title = title,
+				color = color,
+				description = desc,
 				fields = {
 					{
 						name = "**Profile :**",
@@ -5110,7 +5133,7 @@ return function(ctx)
 					},
 					{
 						name = "**Egg Information :**",
-						value = ("> Egg Name : `%s`\n> Current Egg : `%d` (`%s`)\n> Threshold : `-%d`"):format(eggName, curAmt, diffStr, thresh),
+						value = ("> Egg Name : `%s`\n> Current Egg : `%d` (`%s`)\n> Threshold : `%s%d`"):format(eggName, curAmt, diffStr, sign, thresh),
 						inline = false,
 					},
 					{
@@ -5131,17 +5154,18 @@ return function(ctx)
 	function ctx.testRejoinWebhook()
 		local eggName = CFG.hatchEggName or "Paradise Egg"
 		local thresh = math.abs(tonumber(CFG.hatchRejoinMinusThreshold) or 20)
-		sendRejoinMinusWebhook(eggName, 200, -thresh, thresh)
+		sendRejoinWebhook("Minus", eggName, 200, -thresh, thresh)
 	end
 
-	local function checkEggMinus()
-		if not CFG.hatchRejoinMinusEnabled then return nil, nil, nil, nil end
-		local rawThresh = tonumber(CFG.hatchRejoinMinusThreshold) or 20
-		local thresh = math.abs(rawThresh)
-		if thresh <= 0 then thresh = 20 end
+	function ctx.testRejoinPlusWebhook()
+		local eggName = CFG.hatchEggName or "Paradise Egg"
+		local thresh = math.abs(tonumber(CFG.hatchRejoinPlusThreshold) or 20)
+		sendRejoinWebhook("Plus", eggName, 220, thresh, thresh)
+	end
 
+	local function checkEggThreshold()
 		local eggName = CFG.hatchEggName or "Rare Egg"
-		local curAmt = eggAmount(eggName)
+		local curAmt = totalEggCount(eggName)
 		local eggBefore = ctx.state.hatchEggBefore or 0
 
 		-- Inisialisasi hatchEggBefore jika belum ada atau saat ganti egg
@@ -5156,55 +5180,53 @@ return function(ctx)
 
 		local netResult = curAmt - eggBefore
 
-		-- 1. Cek selisih egg berkurang seperti di webhook "Current Egg: 200 (-20)"
-		-- Jika netResult minus dan mencapai / melebihi threshold (misal: netResult <= -20)
-		if eggBefore > 0 and netResult <= -thresh then
-			return eggName, curAmt, netResult, thresh
-		end
+		-- 1. Cek THRESHOLD EGG MINUS (berkurang)
+		if CFG.hatchRejoinMinusEnabled then
+			local minusThresh = math.abs(tonumber(CFG.hatchRejoinMinusThreshold) or 20)
+			if minusThresh <= 0 then minusThresh = 20 end
 
-		-- 2. Cek jika jumlah tool egg itu sendiri minus di backpack (misal: curAmt <= -20)
-		if curAmt <= -thresh then
-			return eggName, curAmt, curAmt, thresh
-		end
+			-- netResult minus melebihi threshold (misal: netResult <= -20)
+			if eggBefore > 0 and netResult <= -minusThresh then
+				return true, "Minus", eggName, curAmt, netResult, minusThresh
+			end
 
-		-- 3. Cek semua egg lain di inventory (jika ada stack minus)
-		local counts = {}
-		for _, src in ipairs({ LP:FindFirstChildOfClass("Backpack"), LP.Character }) do
-			if src then
-				for _, t in ipairs(src:GetChildren()) do
-					local base, qty = parseEggTool(t)
-					if base then
-						counts[base] = (counts[base] or 0) + qty
+			-- Tool stack egg itu sendiri minus di backpack (misal: curAmt <= -20)
+			if curAmt <= -minusThresh then
+				return true, "Minus", eggName, curAmt, curAmt, minusThresh
+			end
+
+			-- Cek jika ada tool egg lain di inventory dengan stack minus
+			local counts = {}
+			for _, src in ipairs({ LP:FindFirstChildOfClass("Backpack"), LP.Character }) do
+				if src then
+					for _, t in ipairs(src:GetChildren()) do
+						local base, qty = parseEggTool(t)
+						if base then counts[base] = (counts[base] or 0) + qty end
 					end
+				end
+			end
+			for name, qty in pairs(counts) do
+				if qty <= -minusThresh then
+					return true, "Minus", name, qty, qty, minusThresh
 				end
 			end
 		end
 
-		for name, qty in pairs(counts) do
-			if qty <= -thresh then
-				return name, qty, qty, thresh
+		-- 2. Cek THRESHOLD EGG PLUS (bertambah)
+		if CFG.hatchRejoinPlusEnabled then
+			local plusThresh = math.abs(tonumber(CFG.hatchRejoinPlusThreshold) or 20)
+			if plusThresh <= 0 then plusThresh = 20 end
+
+			-- netResult bertambah melebihi threshold (misal: netResult >= +20)
+			if eggBefore > 0 and netResult >= plusThresh then
+				return true, "Plus", eggName, curAmt, netResult, plusThresh
 			end
 		end
 
-		return nil, nil, nil, nil
+		return false, nil, eggName, curAmt, netResult, 0
 	end
 
-	local function handleEggMinus(eggName, curAmt, netResult, thresh)
-		if ctx.state.hatchIsRejoining then return end
-		ctx.state.hatchIsRejoining = true
-
-		local diffStr = (type(netResult) == "number") and (("%+d"):format(netResult)) or tostring(netResult)
-		local reason = ("auto rejoin on, %s %d (%s)"):format(eggName, curAmt, diffStr)
-		ctx.state.hatchPhase = "Auto Rejoin"
-		ctx.state.hatchStatus = ("Rejoining (%s %d [%s])..."):format(eggName, curAmt, diffStr)
-		if ctx.log then ctx.log(("[Auto Hatch] %s (Threshold: -%d) -> Rejoining server immediately..."):format(reason, thresh)) end
-
-		-- Kirim webhook di background secara asinkron (langsung tanpa delay)
-		task.spawn(function()
-			sendRejoinMinusWebhook(eggName, curAmt, netResult, thresh)
-		end)
-
-		-- Langsung Reconnect tanpa cooldown (seperti di interval rejoin)
+	local function doDirectReconnect()
 		if ctx.reconnect then
 			pcall(ctx.reconnect)
 		else
@@ -5224,6 +5246,29 @@ return function(ctx)
 				pcall(function() TeleportService:Teleport(game.PlaceId, LP) end)
 			end
 		end
+	end
+
+	local function handleEggRejoin(rType, eggName, curAmt, netResult, thresh)
+		if ctx.state.hatchIsRejoining then return end
+		ctx.state.hatchIsRejoining = true
+
+		local diffStr = (type(netResult) == "number") and (("%+d"):format(netResult)) or tostring(netResult)
+		local sign = (rType == "Plus") and "+" or "-"
+		local reason = ("auto rejoin on, %s %d (%s)"):format(eggName, curAmt, diffStr)
+		ctx.state.hatchPhase = "Auto Rejoin"
+		ctx.state.hatchStatus = ("Rejoining (%s %d [%s])..."):format(eggName, curAmt, diffStr)
+		if ctx.log then ctx.log(("[Auto Hatch] %s (Threshold: %s%d) -> Rejoining server immediately..."):format(reason, sign, thresh)) end
+
+		-- Kirim webhook rejoin
+		task.spawn(function()
+			sendRejoinWebhook(rType, eggName, curAmt, netResult, thresh)
+		end)
+
+		-- Jeda 1.2 detik agar webhook selesai dikirim sebelum client disconnect
+		task.wait(1.2)
+
+		-- Eksekusi Reconnect (seperti di interval rejoin)
+		doDirectReconnect()
 	end
 
 	----------------------------------------------------------------- Cycle Statistics (webhook)
@@ -5325,7 +5370,7 @@ return function(ctx)
 		local eggName = CFG.hatchEggName or "Rare Egg"
 		local hatched = ctx.state.hatchEggsHatched or 0
 		local eggBefore = ctx.state.hatchEggBefore or 0
-		local curAmt = eggAmount(eggName)
+		local curAmt = totalEggCount(eggName)
 
 		-- Format Hunt: Special (range min-max kg) & Heavy/Huge-Colossal (daftar bobot tiap pet)
 		local tiers = ctx.state.hatchTiers or {}
@@ -5441,15 +5486,7 @@ return function(ctx)
 		local d = getData()
 		local maxBp = d and d.PetsData and d.PetsData.MutableStats and tonumber(d.PetsData.MutableStats.MaxPetsInInventory) or 0
 		local eggName = CFG.hatchEggName or "Rare Egg"
-		local curEgg = 0
-		for _, src in ipairs({ LP:FindFirstChildOfClass("Backpack"), LP.Character }) do
-			if src then for _, t in ipairs(src:GetChildren()) do
-				local base, cnt = parseEggTool(t)
-				if base and (base == eggName or base:find(eggName, 1, true)) then
-					curEgg = curEgg + cnt
-				end
-			end end
-		end
+		local curEgg = totalEggCount(eggName)
 		return {
 			status = CFG.hatchEnabled and "RUNNING" or "STOPPED",
 			phase = ctx.state.hatchPhase or "-",
@@ -5475,17 +5512,17 @@ return function(ctx)
 		local maxP = CFG.hatchMaxPlaced or 9
 		local placed = placedEggCount()
 
-		-- CHECK EGG MINUS (Fallback saat Auto Sell dimatikan atau kondisi stuck total):
+		-- CHECK EGG THRESHOLD (Fallback saat Auto Sell dimatikan atau kondisi stuck total):
 		-- Jika Auto Sell mati, atau stuck (tidak ada egg di inventory, plot kosong, dan tidak ada pet untuk di-sell),
 		-- cek langsung agar tidak idle selamanya.
 		-- Jika Auto Sell aktif, pengecekan UTAMA dilakukan SETELAH sell di bawah agar egg bisa balik dulu (Seal the Deal recovery).
-		if CFG.hatchRejoinMinusEnabled then
-			local curEgg = eggAmount(CFG.hatchEggName or "Rare Egg")
+		if CFG.hatchRejoinMinusEnabled or CFG.hatchRejoinPlusEnabled then
+			local curEgg = totalEggCount(CFG.hatchEggName or "Rare Egg")
 			local isStuck = (curEgg <= 0 and placed == 0 and bpc == 0)
 			if not CFG.autoSellEnabled or isStuck then
-				local minusEgg, curAmt, netResult, minusThresh = checkEggMinus()
-				if minusEgg and netResult then
-					handleEggMinus(minusEgg, curAmt, netResult, minusThresh)
+				local shouldRejoin, rType, rEgg, rCur, rNet, rThresh = checkEggThreshold()
+				if shouldRejoin then
+					handleEggRejoin(rType, rEgg, rCur, rNet, rThresh)
 					return
 				end
 			end
@@ -5516,19 +5553,24 @@ return function(ctx)
 			-- Tunggu 2 detik agar notifikasi Lucky Pet / recovery Seal the Deal selesai masuk ke inventory
 			task.wait(2.0)
 
-			-- CEK EGG MINUS SETELAH SIKLUS AUTO SELL SELESAI:
+			-- 1) Kirim Webhook Sell Terlebih Dahulu Sebelum Rejoin!
+			sendCycleStats()
+			ctx.state.hatchPendingReport = false
+
+			-- 2) Beri jeda 0.6s agar HTTP request webhook sell terkirim ke Discord
+			task.wait(0.6)
+
+			-- 3) CEK EGG THRESHOLD (MINUS / PLUS) SETELAH SIKLUS AUTO SELL SELESAI:
 			-- Memberi kesempatan Sell Team mengembalikan egg (Seal recovery) terlebih dahulu.
-			-- Jika setelah sell selesai egg masih minus melebihi threshold -> langsung auto rejoin!
-			if CFG.hatchRejoinMinusEnabled then
-				local minusEgg, curAmt, netResult, minusThresh = checkEggMinus()
-				if minusEgg and netResult then
-					handleEggMinus(minusEgg, curAmt, netResult, minusThresh)
+			-- Jika setelah sell selesai egg minus/plus melebihi threshold -> kirim webhook rejoin lalu langsung auto rejoin!
+			if CFG.hatchRejoinMinusEnabled or CFG.hatchRejoinPlusEnabled then
+				local shouldRejoin, rType, rEgg, rCur, rNet, rThresh = checkEggThreshold()
+				if shouldRejoin then
+					handleEggRejoin(rType, rEgg, rCur, rNet, rThresh)
 					return
 				end
 			end
 
-			-- report DITUNDA: dikirim nanti setelah garden ke-refill (place egg lagi), biar
-			-- Current Amount stabil & Lucky Sell (egg balik) udah nyampe.
 			return
 		end
 
@@ -5543,13 +5585,18 @@ return function(ctx)
 					ctx.state.periodSold = (ctx.state.periodSold or 0) + (tonumber(sold) or 0)
 					ctx.state.sellDoneThisReport = true
 					curPets, maxPets = getInventoryCapacity()
-					task.wait(1.5)
+					task.wait(2.0)
 
-					-- Cek egg minus setelah sell darurat
-					if CFG.hatchRejoinMinusEnabled then
-						local minusEgg, curAmt, netResult, minusThresh = checkEggMinus()
-						if minusEgg and netResult then
-							handleEggMinus(minusEgg, curAmt, netResult, minusThresh)
+					-- Kirim webhook sell dulu
+					sendCycleStats()
+					ctx.state.hatchPendingReport = false
+					task.wait(0.6)
+
+					-- Cek egg threshold setelah sell darurat
+					if CFG.hatchRejoinMinusEnabled or CFG.hatchRejoinPlusEnabled then
+						local shouldRejoin, rType, rEgg, rCur, rNet, rThresh = checkEggThreshold()
+						if shouldRejoin then
+							handleEggRejoin(rType, rEgg, rCur, rNet, rThresh)
 							return
 						end
 					end
@@ -5694,21 +5741,14 @@ return function(ctx)
 		ctx.state.sellDoneThisReport = false
 		ctx.state.hatchPendingReport = false
 		ctx.state.hatchIsRejoining = false
-		-- catat jumlah egg terpilih di awal (buat "Egg Before") = backpack apa adanya
+		-- catat jumlah egg terpilih di awal (buat "Egg Before") = backpack + placed
 		local eggName = CFG.hatchEggName or "Rare Egg"
-		ctx.state.hatchEggBefore = 0
-		for _, src in ipairs({ LP:FindFirstChildOfClass("Backpack"), LP.Character }) do
-			if src then for _, t in ipairs(src:GetChildren()) do
-				local base, cnt = parseEggTool(t)
-				if base and (base == eggName or base:find(eggName, 1, true)) then
-					ctx.state.hatchEggBefore = ctx.state.hatchEggBefore + cnt
-				end
-			end end
-		end
+		ctx.state.lastTrackedEggName = eggName
+		ctx.state.hatchEggBefore = totalEggCount(eggName)
 		ctx.state.hatchStartTime = os.time()
 		ctx.state.hatchCycleStartTime = os.time()
 		task.spawn(loop)
-		if CFG.hatchRejoinMinusEnabled and ctx.startEggMinusWatcher then
+		if (CFG.hatchRejoinMinusEnabled or CFG.hatchRejoinPlusEnabled) and ctx.startEggMinusWatcher then
 			ctx.startEggMinusWatcher()
 		end
 	end
@@ -5742,16 +5782,16 @@ return function(ctx)
 		ctx.state.autoFavId = (ctx.state.autoFavId or 0) + 1
 	end
 
-	----------------------------------------------------------------- EGG MINUS WATCHER
-	-- Watcher independen jika Auto Rejoin on Egg Minus diaktifkan, agar tetap terpantau
+	----------------------------------------------------------------- EGG THRESHOLD WATCHER
+	-- Watcher independen jika Auto Rejoin on Egg Minus / Plus diaktifkan, agar tetap terpantau
 	-- meskipun Auto Hatch sedang idle atau di luar siklus hatch.
 	local function eggMinusWatcherLoop(myId)
-		while CFG.hatchRejoinMinusEnabled and ctx.alive() and ctx.state.eggMinusWatchId == myId do
+		while (CFG.hatchRejoinMinusEnabled or CFG.hatchRejoinPlusEnabled) and ctx.alive() and ctx.state.eggMinusWatchId == myId do
 			-- Jika Auto Hatch aktif dan Auto Sell aktif, biarkan loop Auto Hatch yang mengecek setelah sell
 			if not CFG.hatchEnabled or not CFG.autoSellEnabled then
-				local minusEgg, curAmt, netResult, minusThresh = checkEggMinus()
-				if minusEgg and netResult then
-					handleEggMinus(minusEgg, curAmt, netResult, minusThresh)
+				local shouldRejoin, rType, rEgg, rCur, rNet, rThresh = checkEggThreshold()
+				if shouldRejoin then
+					handleEggRejoin(rType, rEgg, rCur, rNet, rThresh)
 					return
 				end
 			end
@@ -11203,13 +11243,27 @@ return function(ctx)
 				CFG.hatchRejoinMinusEnabled = v; persist()
 				if v and ctx.startEggMinusWatcher then
 					ctx.startEggMinusWatcher()
-				elseif not v and ctx.stopEggMinusWatcher then
+				elseif not v and not CFG.hatchRejoinPlusEnabled and ctx.stopEggMinusWatcher then
 					ctx.stopEggMinusWatcher()
 				end
 			end, 5)
 		makeInput(hEgg, "Egg Minus Threshold", "Batas jumlah minus untuk trigger rejoin (misal: 20)",
 			function() return tostring(CFG.hatchRejoinMinusThreshold or 20) end,
 			function(t) CFG.hatchRejoinMinusThreshold = tonumber(t) or 20; persist() end, 6)
+
+		makeToggle(hEgg, "Auto Rejoin on Egg Plus", "Auto rejoin server jika egg bertambah mencapai batas",
+			function() return CFG.hatchRejoinPlusEnabled end,
+			function(v)
+				CFG.hatchRejoinPlusEnabled = v; persist()
+				if v and ctx.startEggMinusWatcher then
+					ctx.startEggMinusWatcher()
+				elseif not v and not CFG.hatchRejoinMinusEnabled and ctx.stopEggMinusWatcher then
+					ctx.stopEggMinusWatcher()
+				end
+			end, 7)
+		makeInput(hEgg, "Egg Plus Threshold", "Batas jumlah penambahan untuk trigger rejoin (misal: 20)",
+			function() return tostring(CFG.hatchRejoinPlusThreshold or 20) end,
+			function(t) CFG.hatchRejoinPlusThreshold = tonumber(t) or 20; persist() end, 8)
 
 		-- Bronto Configuration (kapan pakai Bronto team buat +30% berat)
 		local hBr = makeAccordion(hatchPage, "Bronto Configuration", 4, true)
@@ -12200,6 +12254,24 @@ return function(ctx)
 				end
 			end)
 		end, 2)
+
+	makeButton(whAcc, "Test Egg Minus Webhook", "Send a test notification for Auto Rejoin on Egg Minus",
+		function()
+			if not CFG.webhookUrl or CFG.webhookUrl == "" then
+				ctx.log("[Webhook Test] Gagal: Webhook URL kosong!")
+				return
+			end
+			if ctx.testRejoinWebhook then ctx.testRejoinWebhook() end
+		end, 3)
+
+	makeButton(whAcc, "Test Egg Plus Webhook", "Send a test notification for Auto Rejoin on Egg Plus",
+		function()
+			if not CFG.webhookUrl or CFG.webhookUrl == "" then
+				ctx.log("[Webhook Test] Gagal: Webhook URL kosong!")
+				return
+			end
+			if ctx.testRejoinPlusWebhook then ctx.testRejoinPlusWebhook() end
+		end, 4)
 
 	-- Performance / Graphics Optimization Accordion
 	local perfAcc = makeAccordion(misc, "Performance", 6, false)
