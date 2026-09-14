@@ -1,6 +1,6 @@
 -- AUTO-GENERATED oleh tools/bundle.js — JANGAN edit manual.
 -- Edit modul-nya langsung, terus run `node tools/bundle.js`.
--- 43 modul, di-generate 2026-09-14T16:46:36.207Z
+-- 43 modul, di-generate 2026-09-14T21:47:29.056Z
 return {
 	["app.lua"] = [=[
 --[[ app.lua — init akhir garden: default tab Inventory + auto-resume automation. ]]
@@ -336,6 +336,18 @@ return function(ctx)
 		sellWhenReach    = 100,    -- jual kalau backpack pet >= ini
 		sellTeamDelay    = 5,      -- detik tunggu abis swap team sebelum jual
 		autoBoostBeforeSell = false,
+		hatchCoreEquipDelay   = 0,
+		hatchCoreUnequipDelay = 1,
+		hatchBrontoEquipDelay = 0,
+		hatchBrontoUnequipDelay = 1,
+		hatchTeamEquipDelay   = 0,
+		hatchTeamUnequipDelay = 1,
+		hatchSellEquipDelay   = 0,
+		hatchSellUnequipDelay = 1,
+		hatchSellList         = {}, -- { [petName] = { kg = 3, action = "SELL"|"KEEP" } }
+		autoUnfavoritePets    = false,
+		unfavoritePetTypes    = {},
+		tradeMethod           = "ticket", -- "ticket" | "gift"
 
 		-- Automation Accept
 		acceptGifts   = false,
@@ -628,6 +640,18 @@ return function(ctx)
 			CFG.sellWhenReach    = tonumber(st.sellWhenReach) or 100
 			CFG.sellTeamDelay    = tonumber(st.sellTeamDelay) or 5
 			CFG.autoBoostBeforeSell = st.autoBoostBeforeSell or false
+			CFG.hatchCoreEquipDelay   = tonumber(st.hatchCoreEquipDelay) or 0
+			CFG.hatchCoreUnequipDelay = tonumber(st.hatchCoreUnequipDelay) or 1
+			CFG.hatchBrontoEquipDelay = tonumber(st.hatchBrontoEquipDelay) or 0
+			CFG.hatchBrontoUnequipDelay = tonumber(st.hatchBrontoUnequipDelay) or 1
+			CFG.hatchTeamEquipDelay   = tonumber(st.hatchTeamEquipDelay) or 0
+			CFG.hatchTeamUnequipDelay = tonumber(st.hatchTeamUnequipDelay) or 1
+			CFG.hatchSellEquipDelay   = tonumber(st.hatchSellEquipDelay) or 0
+			CFG.hatchSellUnequipDelay = tonumber(st.hatchSellUnequipDelay) or 1
+			CFG.hatchSellList         = tbl(st.hatchSellList)
+			CFG.autoUnfavoritePets    = st.autoUnfavoritePets or false
+			CFG.unfavoritePetTypes    = tbl(st.unfavoritePetTypes)
+			CFG.tradeMethod           = st.tradeMethod or "ticket"
 			CFG.acceptGifts    = st.acceptGifts or false
 			CFG.acceptTrades   = st.acceptTrades or false
 			CFG.autoFavorite   = st.autoFavorite or false
@@ -4563,13 +4587,15 @@ return function(ctx)
 	end
 
 	-- 1 pass: cabut non-team, pasang anggota team yg belum ke-equip.
-	local function equipTeamOnce(teamSet)
+	local function equipTeamOnce(teamSet, unequipDelay, equipDelay)
+		local unDelay = tonumber(unequipDelay) or 0.1
+		local eqDelay = tonumber(equipDelay) or 0.15
 		local keep = {}
 		for u in pairs(teamSet) do keep[u] = true end
 		for _, u in ipairs(equippedList()) do
 			if not keep[u] then
 				pcall(function() PetsRemote:FireServer("UnequipPet", u) end)
-				task.wait(0.1)
+				if unDelay > 0 then task.wait(unDelay) end
 			end
 		end
 		local eqNow = {}
@@ -4577,7 +4603,10 @@ return function(ctx)
 		for u in pairs(teamSet) do
 			if not eqNow[u] then
 				local pos = getPos(u)
-				if pos then pcall(function() PetsRemote:FireServer("EquipPet", u, CFrame.new(pos)) end); task.wait(0.15) end
+				if pos then
+					pcall(function() PetsRemote:FireServer("EquipPet", u, CFrame.new(pos)) end)
+					if eqDelay > 0 then task.wait(eqDelay) end
+				end
 			end
 		end
 	end
@@ -4587,14 +4616,14 @@ return function(ctx)
 	-- (spawn model) cuma dipake sbg sinyal cepat kalau kebaca — tapi di LOW PERFORMANCE MODE
 	-- model pet sering ga spawn, jadi JANGAN jadiin gate. Kalau ga kebaca aktif, tetap lanjut
 	-- setelah settle delay (team udah ke-equip = boost udah masuk server).
-	local function equipTeam(teamSet, label)
+	local function equipTeam(teamSet, label, unequipDelay, equipDelay)
 		if not next(teamSet or {}) then return true end
 		if teamMatches(teamSet) and teamActive(teamSet) then return true end -- fast path
 		ctx.state.hatchStatus = (label or "Team") .. ": equipping..."
 		-- 1) pasang sampai data-equipped lengkap
 		for _ = 1, 6 do
 			if teamMatches(teamSet) then break end
-			equipTeamOnce(teamSet)
+			equipTeamOnce(teamSet, unequipDelay, equipDelay)
 			task.wait(0.2)
 		end
 		if not teamMatches(teamSet) then return false end -- beneran ga bisa equip -> gagal
@@ -4640,6 +4669,31 @@ return function(ctx)
 		local age = pd.Level or 0
 		local w = (pd.BaseWeight or 0) * (1 + 0.1 * age)
 		local key = petEggLabel(petType)
+
+		-- Prioritas 1: Config List baru (Bulk / per-pet setting seperti di NODE HUB)
+		if CFG.hatchSellList and next(CFG.hatchSellList) then
+			local rule = nil
+			for name, r in pairs(CFG.hatchSellList) do
+				if name == petType or key == name or tostring(petType):lower() == tostring(name):lower() then
+					rule = r
+					break
+				end
+			end
+			if rule then
+				local targetKg = tonumber(rule.kg) or 0
+				if w >= targetKg then
+					return false -- Weight >= KG -> KEEP (pet aman, tetap disimpan, dan masuk ke proses Bronto)
+				else
+					-- Weight < KG -> mengikuti pengaturan tombol KEEP / SELL
+					return rule.action == "SELL"
+				end
+			else
+				-- Pet tidak ada di list config -> KEEP (aman)
+				return false
+			end
+		end
+
+		-- Fallback: config lama (Pets to Sell & Special Pets to Sell)
 		if (CFG.sellPetTypes or {})[key] then
 			local wt = CFG.sellWeightThreshold or 0
 			local at = CFG.sellAgeThreshold or 0
@@ -4657,7 +4711,7 @@ return function(ctx)
 	-- Jalankan sell: pet yg keep -> favorit; pet yg dijual -> unfavorit lalu jual.
 	local function doSell()
 		-- GUARD: filter kosong -> batalin (biar ga ada kecelakaan)
-		if not next(CFG.sellPetTypes or {}) and not next(CFG.sellSpecialTypes or {}) then
+		if not next(CFG.hatchSellList or {}) and not next(CFG.sellPetTypes or {}) and not next(CFG.sellSpecialTypes or {}) then
 			ctx.state.hatchStatus = "Sell dibatalin: filter 'Pets to Sell' kosong"
 			return 0
 		end
@@ -5595,7 +5649,7 @@ return function(ctx)
 		end
 		if sellNow then
 			ctx.state.hatchPhase = "Selling Pets"
-			if next(CFG.hatchSellTeam or {}) and not equipTeam(CFG.hatchSellTeam, "Sell Team") then return end -- team wajib lengkap
+			if next(CFG.hatchSellTeam or {}) and not equipTeam(CFG.hatchSellTeam, "Sell Team", CFG.hatchSellUnequipDelay, CFG.hatchSellEquipDelay) then return end -- team wajib lengkap
 			task.wait(CFG.sellTeamDelay or 5)
 			local sold = doSell()
 			ctx.state.periodSold = (ctx.state.periodSold or 0) + (tonumber(sold) or 0)
@@ -5633,7 +5687,7 @@ return function(ctx)
 		if maxPets > 0 and curPets >= maxPets then
 			if CFG.autoSellEnabled and not ctx.state.sellDoneThisReport then
 				ctx.state.hatchPhase = "Selling Pets (Inv Full)"
-				if not next(CFG.hatchSellTeam or {}) or equipTeam(CFG.hatchSellTeam, "Sell Team") then
+				if not next(CFG.hatchSellTeam or {}) or equipTeam(CFG.hatchSellTeam, "Sell Team", CFG.hatchSellUnequipDelay, CFG.hatchSellEquipDelay) then
 					task.wait(CFG.sellTeamDelay or 5)
 					local sold = doSell()
 					ctx.state.periodSold = (ctx.state.periodSold or 0) + (tonumber(sold) or 0)
@@ -5673,7 +5727,7 @@ return function(ctx)
 		--    (grid bentrok egg recovered / kapasitas farm mentok) -> lanjut proses egg yg ada.
 		if placed < maxP then
 			ctx.state.hatchPhase = ("Placing Eggs (%d/%d)"):format(placed, maxP)
-			if not equipTeam(CFG.hatchCoreTeam, "Core Team") then return end -- team wajib lengkap dulu
+			if not equipTeam(CFG.hatchCoreTeam, "Core Team", CFG.hatchCoreUnequipDelay, CFG.hatchCoreEquipDelay) then return end -- team wajib lengkap dulu
 			local added = placeEggs(maxP)
 			placed = placedEggCount()
 			if added > 0 and placed < maxP then return end -- masih nambah -> lanjut place tick berikut
@@ -5720,7 +5774,7 @@ return function(ctx)
 			end
 			-- pass NORMAL -> Hatch Team (Koi recover)
 			if #normal > 0 then
-				if next(CFG.hatchHatchTeam or {}) and not equipTeam(CFG.hatchHatchTeam, "Hatch Team") then return end
+				if next(CFG.hatchHatchTeam or {}) and not equipTeam(CFG.hatchHatchTeam, "Hatch Team", CFG.hatchTeamUnequipDelay, CFG.hatchTeamEquipDelay) then return end
 				if next(CFG.hatchHatchTeam or {}) and (CFG.hatchTeamDelay or 5) > 0 then
 					task.wait(CFG.hatchTeamDelay or 5)
 				end
@@ -5730,7 +5784,7 @@ return function(ctx)
 			if not CFG.hatchEnabled then return end
 			-- pass BRONTO -> Bronto Team (+30% berat) + kirim Hatch Alert per pet
 			if #bronto > 0 then
-				if next(CFG.hatchBrontoTeam or {}) and not equipTeam(CFG.hatchBrontoTeam, "Bronto Team") then return end
+				if next(CFG.hatchBrontoTeam or {}) and not equipTeam(CFG.hatchBrontoTeam, "Bronto Team", CFG.hatchBrontoUnequipDelay, CFG.hatchBrontoEquipDelay) then return end
 				if next(CFG.hatchBrontoTeam or {}) and (CFG.brontoTeamDelay or 5) > 0 then
 					task.wait(CFG.brontoTeamDelay or 5)
 				end
@@ -5835,6 +5889,29 @@ return function(ctx)
 	end
 	function ctx.stopAutoFavorite()
 		ctx.state.autoFavId = (ctx.state.autoFavId or 0) + 1
+	end
+
+	----------------------------------------------------------------- AUTO UNFAVORITE
+	-- Unfavoritin otomatis pet yg tipenya ada di CFG.unfavoritePetTypes (atau semua jika kosong).
+	function ctx.startAutoUnfavorite()
+		ctx.state.autoUnfavId = (ctx.state.autoUnfavId or 0) + 1
+		local my = ctx.state.autoUnfavId
+		ctx.elevate()
+		task.spawn(function()
+			while CFG.autoUnfavoritePets and ctx.alive() and ctx.state.autoUnfavId == my do
+				for _, t in ipairs(petTools()) do
+					local pt = t:GetAttribute("f")
+					local match = (not next(CFG.unfavoritePetTypes or {})) or (pt and (CFG.unfavoritePetTypes)[pt])
+					if match and isFav(t) then
+						setFav(t, false)
+					end
+				end
+				task.wait(3)
+			end
+		end)
+	end
+	function ctx.stopAutoUnfavorite()
+		ctx.state.autoUnfavId = (ctx.state.autoUnfavId or 0) + 1
 	end
 
 	----------------------------------------------------------------- EGG THRESHOLD WATCHER
@@ -6310,6 +6387,66 @@ return function(ctx)
 		return true
 	end
 
+	----------------------------------------------------------------- one gift (tanpa ticket)
+	local function doOneGift(target)
+		local pets = matchingPetUuids(CFG.petsPerTrade or 1)
+		if #pets == 0 then
+			log("Tidak ada pet cocok filter untuk Gift.")
+			return false
+		end
+
+		local GiftPet = ctx.deps.GiftPet or game:GetService("ReplicatedStorage").GameEvents:FindFirstChild("GiftPet")
+		local Gift = ctx.deps.Gift or game:GetService("ReplicatedStorage").GameEvents:FindFirstChild("Gift")
+		local Favorite_Item = ctx.deps.FavoriteItem or game:GetService("ReplicatedStorage").GameEvents:FindFirstChild("Favorite_Item")
+		local Favorite_Item_BE = game:GetService("ReplicatedStorage").GameEvents:FindFirstChild("Favorite_Item_BE")
+
+		local function findToolByUuid(uuid)
+			local bp = LP:FindFirstChildOfClass("Backpack")
+			if bp then for _, t in ipairs(bp:GetChildren()) do
+				if t:IsA("Tool") and t:GetAttribute("PET_UUID") == uuid then return t end
+			end end
+			if LP.Character then for _, t in ipairs(LP.Character:GetChildren()) do
+				if t:IsA("Tool") and t:GetAttribute("PET_UUID") == uuid then return t end
+			end end
+			return nil
+		end
+
+		local hum = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
+		local sentCount = 0
+
+		for _, p in ipairs(pets) do
+			if not ctx.state.tradeRunning then break end
+			local tool = findToolByUuid(p.uuid)
+			if tool then
+				if p.fav and Favorite_Item then
+					pcall(function() Favorite_Item:FireServer(tool) end)
+					if Favorite_Item_BE then pcall(function() Favorite_Item_BE:Fire(tool) end) end
+					task.wait(0.15)
+				end
+
+				if hum then
+					pcall(function() hum:EquipTool(tool) end)
+					task.wait(0.2)
+				end
+
+				setStatus(("Mengirim gift pet ke %s..."):format(target.Name))
+				if GiftPet then
+					pcall(function() GiftPet:FireServer(target, tool) end)
+					pcall(function() GiftPet:FireServer(target, p.uuid) end)
+				end
+				if Gift then
+					pcall(function() Gift:FireServer(target, tool) end)
+					pcall(function() Gift:FireServer(target, p.uuid) end)
+				end
+				sentCount = sentCount + 1
+				log(("Gift terkirim ke %s: %s"):format(target.Name, tostring(p.petType or "Pet")))
+				task.wait(1.5)
+			end
+		end
+
+		return sentCount > 0
+	end
+
 	----------------------------------------------------------------- loop
 	local function tradeLoop()
 		ctx.elevate()
@@ -6340,10 +6477,11 @@ return function(ctx)
 			else
 				ctx.state.status = "RUNNING"
 				if ctx.refreshTradeStatus then ctx.refreshTradeStatus() end
-				local ok = doOneTrade(target)
+				local isGift = (CFG.tradeMethod == "gift")
+				local ok = isGift and doOneGift(target) or doOneTrade(target)
 				if ok then
 					ctx.state.completed += 1
-					log(("Trade sukses (%d/%d)"):format(ctx.state.completed, CFG.totalTrades))
+					log(("%s sukses (%d/%d)"):format(isGift and "Gift" or "Trade", ctx.state.completed, CFG.totalTrades))
 					if ctx.notifyTrade then ctx.notifyTrade(target, #matchingPetUuids(CFG.petsPerTrade)) end
 				end
 				if ctx.refreshTradeStatus then ctx.refreshTradeStatus() end
@@ -9940,12 +10078,12 @@ return function(ctx)
 		pad(txts, 4, 0, 0, 0)
 
 		local tLbl = mk("TextLabel", {
-			Size = UDim2.new(1, 0, 0, 18),
-			Position = UDim2.fromOffset(0, desc and 2 or 6),
+			Size = UDim2.new(1, 0, 0, 19),
+			Position = UDim2.fromOffset(0, desc and 1 or 8),
 			BackgroundTransparency = 1,
 			Text = title,
 			Font = F.bold,
-			TextSize = 12.5,
+			TextSize = 13.5,
 			TextColor3 = C.txt,
 			TextXAlignment = Enum.TextXAlignment.Left,
 		}, txts)
@@ -9953,11 +10091,11 @@ return function(ctx)
 		if desc then
 			local dLbl = mk("TextLabel", {
 				Size = UDim2.new(1, 0, 0, 14),
-				Position = UDim2.fromOffset(0, 19),
+				Position = UDim2.fromOffset(0, 20),
 				BackgroundTransparency = 1,
 				Text = desc,
 				Font = F.reg,
-				TextSize = 10.5,
+				TextSize = 11,
 				TextColor3 = C.sub,
 				TextXAlignment = Enum.TextXAlignment.Left,
 				TextTruncate = Enum.TextTruncate.AtEnd,
@@ -9976,7 +10114,7 @@ return function(ctx)
 		grad(d, 0, C.strokeSub, C.acc)
 	end
 
-	----------------------------------------------------------------- Modern Toggle Pill
+	----------------------------------------------------------------- Modern Toggle Pill (44x24 Touch-Friendly)
 	local function makeToggle(parent, title, desc, getv, setv, order)
 		local row = mk("Frame", {
 			Size = UDim2.new(1, 0, 0, 36),
@@ -9986,13 +10124,13 @@ return function(ctx)
 		labels(row, title, desc, 56)
 
 		local pill = mk("TextButton", {
-			Size = UDim2.fromOffset(44, 22),
-			Position = UDim2.new(1, -50, 0.5, -11),
+			Size = UDim2.fromOffset(44, 24),
+			Position = UDim2.new(1, -50, 0.5, -12),
 			BackgroundColor3 = C.panel,
 			Text = "",
 			AutoButtonColor = false,
 		}, row)
-		corner(pill, 11)
+		corner(pill, 12)
 		local pillStroke = stroke(pill, C.strokeSub, 1.2, 0.4)
 
 		local pillGrad = mk("Frame", {
@@ -10002,21 +10140,21 @@ return function(ctx)
 			BorderSizePixel = 0,
 			ZIndex = 2,
 		}, pill)
-		corner(pillGrad, 11)
+		corner(pillGrad, 12)
 		grad(pillGrad, 0, C.acc, C.acc2)
 
 		local dot = mk("Frame", {
-			Size = UDim2.fromOffset(16, 16),
+			Size = UDim2.fromOffset(18, 18),
 			Position = UDim2.fromOffset(3, 3),
 			BackgroundColor3 = C.sub,
 			ZIndex = 3,
 		}, pill)
-		corner(dot, 8)
+		corner(dot, 9)
 		stroke(dot, Color3.new(1, 1, 1), 1, 0.6)
 
 		local function render(animate)
 			local on = getv()
-			local targetPos = on and UDim2.fromOffset(25, 3) or UDim2.fromOffset(3, 3)
+			local targetPos = on and UDim2.fromOffset(23, 3) or UDim2.fromOffset(3, 3)
 			local targetDotColor = on and Color3.new(1, 1, 1) or C.sub
 			local targetPillColor = on and C.acc or C.panel
 			local targetGradTrans = on and 0 or 1
@@ -10074,7 +10212,7 @@ return function(ctx)
 			BackgroundTransparency = 1,
 			Text = tostring(getv()),
 			Font = F.bold,
-			TextSize = 12,
+			TextSize = 13,
 			TextColor3 = C.txt,
 			PlaceholderColor3 = C.sub,
 			ClearTextOnFocus = false,
@@ -10133,7 +10271,7 @@ return function(ctx)
 			BackgroundTransparency = 1,
 			Text = getv() ~= "" and getv() or "Pilih Opsi",
 			Font = F.bold,
-			TextSize = 11.5,
+			TextSize = 13,
 			TextColor3 = C.accSoft,
 			TextXAlignment = Enum.TextXAlignment.Left,
 			TextTruncate = Enum.TextTruncate.AtEnd,
@@ -10287,7 +10425,7 @@ return function(ctx)
 			BackgroundTransparency = 1,
 			Text = "Pilih",
 			Font = F.bold,
-			TextSize = 11.5,
+			TextSize = 13,
 			TextColor3 = C.sub,
 			TextXAlignment = Enum.TextXAlignment.Left,
 			TextTruncate = Enum.TextTruncate.AtEnd,
@@ -10475,7 +10613,7 @@ return function(ctx)
 			BackgroundTransparency = 1,
 			Text = "Pilih (semua)",
 			Font = F.bold,
-			TextSize = 11.5,
+			TextSize = 13,
 			TextColor3 = C.sub,
 			TextXAlignment = Enum.TextXAlignment.Left,
 			TextTruncate = Enum.TextTruncate.AtEnd,
@@ -10575,14 +10713,14 @@ return function(ctx)
 				local value, display = opt.value, opt.display
 				local isSel = selSet[value] == true
 
-				-- Tombol pet diperbesar ke 40px tinggi & font 14.5px bold (sangat mudah dibaca & di-tap)
+				-- Tombol pet diperbesar ke 32px tinggi & font 13.5px bold (mudah dibaca & di-tap)
 				local ob = mk("TextButton", {
-					Size = UDim2.new(1, 0, 0, 30),
+					Size = UDim2.new(1, 0, 0, 32),
 					BackgroundColor3 = isSel and C.rowAlt or C.row,
 					Text = "     " .. display,
 					TextXAlignment = Enum.TextXAlignment.Left,
 					Font = isSel and F.bold or F.bold,
-					TextSize = 12,
+					TextSize = 13.5,
 					TextColor3 = isSel and C.accSoft or C.txt,
 					AutoButtonColor = false,
 				}, scroll)
@@ -10745,7 +10883,7 @@ return function(ctx)
 	end
 
 	----------------------------------------------------------------- Sidebar Page/Tab
-	local function makePage(name, titleText, icon, order)
+	local function makePage(name, titleText, icon, order, fixedLayout)
 		local tabButtonsFrame = ctx.ui.tabButtonsFrame
 		local content         = ctx.ui.content
 		local pages, tabBtns  = ctx.ui.pages, ctx.ui.tabBtns
@@ -10756,7 +10894,7 @@ return function(ctx)
 			BackgroundTransparency = 1,
 			Text = "   " .. (icon or "✦") .. "  " .. name,
 			Font = F.bold,
-			TextSize = 12.5,
+			TextSize = 13.5,
 			TextColor3 = C.sub,
 			LayoutOrder = order,
 			AutoButtonColor = false,
@@ -10805,43 +10943,29 @@ return function(ctx)
 
 		tabBtns[name] = { btn = btn, line = line, setActive = setActive }
 
-		local pg = mk("ScrollingFrame", {
-			Size = UDim2.new(1, 0, 1, 0),
-			BackgroundTransparency = 1,
-			Visible = false,
-			ScrollBarThickness = 3,
-			CanvasSize = UDim2.new(),
-			AutomaticCanvasSize = "Y",
-			ScrollBarImageColor3 = C.acc,
-		}, content)
-		pad(pg, 4, 8, 2, 8)
-		mk("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }, pg)
+		local pg
+		if fixedLayout then
+			pg = mk("Frame", {
+				Size = UDim2.new(1, 0, 1, 0),
+				BackgroundTransparency = 1,
+				Visible = false,
+			}, content)
+			pad(pg, 4, 8, 4, 8)
+		else
+			pg = mk("ScrollingFrame", {
+				Size = UDim2.new(1, 0, 1, 0),
+				BackgroundTransparency = 1,
+				Visible = false,
+				ScrollBarThickness = 3,
+				CanvasSize = UDim2.new(),
+				AutomaticCanvasSize = "Y",
+				ScrollBarImageColor3 = C.acc,
+				BorderSizePixel = 0,
+			}, content)
+			pad(pg, 4, 8, 4, 8)
+			mk("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }, pg)
+		end
 		pages[name] = pg
-
-		local headerFrame = mk("Frame", {
-			Size = UDim2.new(1, 0, 0, 32),
-			BackgroundTransparency = 1,
-			LayoutOrder = 0,
-		}, pg)
-
-		local tTitle = mk("TextLabel", {
-			Size = UDim2.new(1, 0, 0, 24),
-			BackgroundTransparency = 1,
-			Text = (icon or "✦") .. "  " .. titleText,
-			Font = F.bold,
-			TextSize = 18,
-			TextColor3 = C.txt,
-			TextXAlignment = Enum.TextXAlignment.Left,
-		}, headerFrame)
-
-		local underline = mk("Frame", {
-			Size = UDim2.new(0, 45, 0, 2),
-			Position = UDim2.new(0, 0, 1, -3),
-			BackgroundColor3 = C.acc,
-			BorderSizePixel = 0,
-		}, headerFrame)
-		corner(underline, 2)
-		grad(underline, 0, C.acc, C.acc2)
 
 		btn.MouseButton1Click:Connect(function()
 			for n, p in pairs(pages) do p.Visible = (n == name) end
@@ -10894,26 +11018,29 @@ return function(ctx)
 		return btn
 	end
 
-	----------------------------------------------------------------- Horizontal Sub-Tabs (Menyamping)
-	local function makeSubTabs(parent, tabList, defaultId, order)
-		local wrapper = mk("Frame", {
-			Size = UDim2.new(1, 0, 0, 0),
-			AutomaticSize = Enum.AutomaticSize.Y,
-			BackgroundTransparency = 1,
-			LayoutOrder = order or 1,
-		}, parent)
-		mk("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 8) }, wrapper)
+	----------------------------------------------------------------- Horizontal Sub-Tabs (Paten / Fixed Layout)
+	local function makeSubTabs(parent, tabList, defaultId, options)
+		options = (type(options) == "table") and options or {}
+		local hasBottomBar = options.hasBottomBar ~= false
+		local hasInfoLine = options.hasInfoLine == true
 
-		-- Bar tombol sub-tab horizontal di atas (bisa scroll X jika banyak)
+		-- Container utama sub-tabs (mengisi penuh parent)
+		local wrapper = mk("Frame", {
+			Size = UDim2.fromScale(1, 1),
+			BackgroundTransparency = 1,
+		}, parent)
+
+		-- 1) TOP BAR: Bar tombol sub-tab horizontal (PATEN DI ATAS)
 		local barFrame = mk("ScrollingFrame", {
 			Size = UDim2.new(1, 0, 0, 30),
+			Position = UDim2.new(0, 0, 0, 0),
 			BackgroundTransparency = 1,
 			ScrollBarThickness = 0,
 			CanvasSize = UDim2.new(),
 			AutomaticCanvasSize = Enum.AutomaticSize.X,
 			ScrollingDirection = Enum.ScrollingDirection.X,
 			BorderSizePixel = 0,
-			LayoutOrder = 1,
+			ZIndex = 5,
 		}, wrapper)
 		mk("UIListLayout", {
 			FillDirection = Enum.FillDirection.Horizontal,
@@ -10922,14 +11049,34 @@ return function(ctx)
 			VerticalAlignment = Enum.VerticalAlignment.Center,
 		}, barFrame)
 
-		-- Content area sub-tab
+		local topOffset = 34
+		local infoLabel = nil
+
+		-- 2) INFO LINE: Info kecil di bawah tab (PATEN) e.g. "Main (0)  Bronto (0)  Hatch (0)  Sell (0)"
+		if hasInfoLine then
+			infoLabel = mk("TextLabel", {
+				Size = UDim2.new(1, 0, 0, 18),
+				Position = UDim2.new(0, 0, 0, 32),
+				BackgroundTransparency = 1,
+				Text = options.defaultInfoText or "",
+				Font = F.bold,
+				TextSize = 11,
+				TextColor3 = C.sub,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				RichText = true,
+				ZIndex = 5,
+			}, wrapper)
+			topOffset = 52
+		end
+
+		local bottomSpace = hasBottomBar and 40 or 0
+
+		-- 3) MIDDLE SCROLL AREA: Mengisi ruang di antara top bar dan bottom bar
 		local subContent = mk("Frame", {
-			Size = UDim2.new(1, 0, 0, 0),
-			AutomaticSize = Enum.AutomaticSize.Y,
+			Size = UDim2.new(1, 0, 1, -(topOffset + bottomSpace)),
+			Position = UDim2.new(0, 0, 0, topOffset),
 			BackgroundTransparency = 1,
-			LayoutOrder = 2,
 		}, wrapper)
-		mk("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 0) }, subContent)
 
 		local tabBtns = {}
 		local pages = {}
@@ -10958,19 +11105,19 @@ return function(ctx)
 			local isDefault = (id == currentTab)
 
 			local textLen = #title
-			local btnW = math.clamp(textLen * 7.5 + 24, 60, 160)
+			local btnW = math.clamp(textLen * 8.5 + 24, 70, 170)
 
 			local btn = mk("TextButton", {
-				Size = UDim2.fromOffset(btnW, 26),
+				Size = UDim2.fromOffset(btnW, 28),
 				BackgroundColor3 = isDefault and C.rowAlt or C.row,
 				Text = title,
 				Font = F.bold,
-				TextSize = 11.5,
+				TextSize = 13,
 				TextColor3 = isDefault and C.txt or C.sub,
 				LayoutOrder = i,
 				AutoButtonColor = false,
 			}, barFrame)
-			corner(btn, 13)
+			corner(btn, 14)
 			local s = stroke(btn, isDefault and C.acc or C.strokeSub, isDefault and 1.4 or 1, isDefault and 0.1 or 0.6)
 
 			btn.MouseEnter:Connect(function()
@@ -10989,29 +11136,46 @@ return function(ctx)
 
 			tabBtns[id] = { btn = btn, stroke = s }
 
-			local subPg = mk("Frame", {
-				Size = UDim2.new(1, 0, 0, 0),
-				AutomaticSize = Enum.AutomaticSize.Y,
+			local subPg = mk("ScrollingFrame", {
+				Size = UDim2.fromScale(1, 1),
 				BackgroundTransparency = 1,
 				Visible = isDefault,
-				LayoutOrder = i,
+				ScrollBarThickness = 3,
+				CanvasSize = UDim2.new(),
+				AutomaticCanvasSize = Enum.AutomaticSize.Y,
+				ScrollBarImageColor3 = C.acc,
+				BorderSizePixel = 0,
 			}, subContent)
+			pad(subPg, 2, 6, 2, 6)
 			mk("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, subPg)
 
 			pages[id] = subPg
+		end
+
+		-- 4) BOTTOM BAR FRAME (PATEN DI BAWAH)
+		local bottomBarFrame = nil
+		if hasBottomBar then
+			bottomBarFrame = mk("Frame", {
+				Size = UDim2.new(1, 0, 0, 36),
+				Position = UDim2.new(0, 0, 1, -36),
+				BackgroundTransparency = 1,
+				ZIndex = 5,
+			}, wrapper)
 		end
 
 		return {
 			wrapper = wrapper,
 			pages = pages,
 			selectTab = selectTab,
+			infoLabel = infoLabel,
+			bottomBarFrame = bottomBarFrame,
 		}
 	end
 
 	----------------------------------------------------------------- Start / Stop Control Bar (Bawah)
 	local function makeStartStopBar(parent, getRunning, onStart, onStop, order)
 		local bar = mk("Frame", {
-			Size = UDim2.new(1, 0, 0, 34),
+			Size = UDim2.new(1, 0, 1, 0),
 			BackgroundTransparency = 1,
 			LayoutOrder = order or 999,
 		}, parent)
@@ -11138,23 +11302,23 @@ return function(ctx)
 	local makeSubTabs = ctx.makeSubTabs
 	local makeStartStopBar = ctx.makeStartStopBar
 
+	local FIXED_TABS = { Hatch = true, Flow = true, Shop = true, Elephant = true }
 	-- sidebar tabs (urut sesuai referensi)
 	local TABS = {
 		{ "Pet", "Pet", "🐾" },
 		{ "Farm", "Farm", "🌾" },
 		{ "Elephant", "Elephant", "🐘" },
-		{ "Growth", "Growth", "🌱" },
+		{ "Flow", "Flow", "🌱" },
 		{ "Hatch", "Hatch", "🥚" },
 		{ "Leveling", "Leveling", "⚡" },
 		{ "Mutation", "Mutation", "🧪" },
-		{ "Event", "Event", "☀️" },
 		{ "Inventory", "Inventory", "🎒" },
 		{ "Shop", "Shop", "🛒" },
 		{ "Misc", "Misc", "⚙️" },
 	}
 	local pageRef = {}
 	for i, t in ipairs(TABS) do
-		pageRef[t[1]] = makePage(t[1], t[2], t[3], i)
+		pageRef[t[1]] = makePage(t[1], t[2], t[3], i, FIXED_TABS[t[1]])
 	end
 
 	-- placeholder untuk tab yang belum diisi
@@ -11334,59 +11498,33 @@ return function(ctx)
 			function(v) CFG.reclaimEnabled = v; persist(); if v and ctx.startReclaim then ctx.startReclaim() end end, 2)
 	end
 
-	------------------------------------------------------------------ GROWTH (pipeline batch per-step)
+	------------------------------------------------------------------ FLOW (pipeline batch per-step)
 	do
-		local growthPage = pageRef["Growth"]
+		local flowPage = pageRef["Flow"] or pageRef["Growth"]
 		local FLOW_OPTS = { { name = "none", display = "None (kosong)" }, { name = "elephant", display = "Elephant" }, { name = "mutation", display = "Mutation" }, { name = "leveling", display = "Leveling" }, { name = "leveling_p1", display = "Leveling Phase 1" }, { name = "leveling_p2", display = "Leveling Phase 2" } }
 		local function capStep(s) for _, o in ipairs(FLOW_OPTS) do if o.name == s then return o.display end end return "Select" end
 
-		local sub = makeSubTabs(growthPage, {
-			{ id = "status",   name = "⚙ Status" },
+		local sub = makeSubTabs(flowPage, {
+			{ id = "flow",     name = "Flow Config" },
 			{ id = "elephant", name = "Elephant" },
 			{ id = "mutation", name = "Mutation" },
 			{ id = "leveling", name = "Leveling" },
-			{ id = "flow",     name = "Flow Config" },
-		}, "status", 1)
+		}, "flow", { hasBottomBar = true, hasInfoLine = false })
 
-		-- 1) STATUS & MAIN CONTROL
-		local pStatus = sub.pages["status"]
-		local gCtrl = makeAccordion(pStatus, "Growth Control & Status", 1, true)
-		local gLbl = mk("TextLabel", { Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, Text = "Loading...", Font = F.reg, TextSize = 12, TextColor3 = C.txt, TextXAlignment = Enum.TextXAlignment.Left, TextWrapped = true, LineHeight = 1.3, RichText = true, LayoutOrder = 0 }, gCtrl)
-		mk("Frame", { Size = UDim2.new(1, 0, 0, 8), BackgroundTransparency = 1, LayoutOrder = 1 }, gCtrl)
-		task.spawn(function()
-			while ctx.alive() do
-				if not onScreen(growthPage) then task.wait(1) continue end
-				local ok, s = pcall(function() return ctx.getGrowthSummary() end)
-				if ok and s then
-					local col = s.status == "ACTIVE" and "#5acc78" or "#dc5050"
-					local steps = ""
-					for _, st in ipairs({ "elephant", "mutation", "leveling" }) do
-						local ps = s.perStep[st]
-						if ps then steps = steps .. ("%s: <font color=\"#8c929e\">%d/%d</font>\n"):format(st, ps.done, ps.total) end
-					end
-					gLbl.Text = string.format(
-						"Status: <font color=\"%s\"><b>%s</b></font>  |  <font color=\"#f5c82d\">%s</font>\n" ..
-						"Flow: <font color=\"#8c929e\">%s</font>\nTarget: <font color=\"#8c929e\">%s</font>\n\n%s\n" ..
-						"Team Elephant: <font color=\"#8c929e\">%s</font>\n" ..
-						"Team Mutation: <font color=\"#8c929e\">%s</font>\n" ..
-						"Team Leveling P1: <font color=\"#8c929e\">%s</font>\n" ..
-						"Team Leveling P2: <font color=\"#8c929e\">%s</font>",
-						col, s.status, s.step, s.flow, s.types, steps,
-						s.teamElephant or "-", s.teamMutation or "-", s.teamLevP1 or "-", s.teamLevP2 or "-")
-				end
-				task.wait(1.5)
-			end
-		end)
-		makeMultiDropdown(gCtrl, "Growth Target Pet Types (Default)", "Target default; dipakai step yg target per-method-nya kosong",
-			reg.PET_OPTIONS, CFG.growthPetTypes, function() persist() end, 2)
-		local refreshGrowthBar
-		makeToggle(gCtrl, "Enable Growth", "Jalankan pipeline (batch per-step sesuai flow)",
-			function() return CFG.growthEnabled end,
-			function(v)
-				CFG.growthEnabled = v; persist()
-				if v then ctx.startGrowth() else ctx.stopGrowth() end
-				if refreshGrowthBar then refreshGrowthBar() end
-			end, 3)
+		-- 1) FLOW CONFIG
+		local pFlow = sub.pages["flow"]
+		local gMainAcc = makeAccordion(pFlow, "Flow Controls & Targets", 1, true)
+		makeMultiDropdown(gMainAcc, "Flow Target Pet Types (Default)", "Target default; dipakai step yg target per-method-nya kosong",
+			reg.PET_OPTIONS, CFG.growthPetTypes, function() persist() end, 1)
+
+		local gFlow = makeAccordion(pFlow, "Configuration Flow", 2, true)
+		local stepDesc = { "First step in pipeline flow", "Second step in pipeline flow", "Third step in pipeline flow", "Fourth step in pipeline flow", "Fifth step in pipeline flow", "Sixth step in pipeline flow", }
+		for i = 1, 6 do
+			makeSingleDropdown(gFlow, "Step " .. i, stepDesc[i],
+				function() return FLOW_OPTS end,
+				function() return capStep((CFG.growthFlow or {})[i]) end,
+				function(code) CFG.growthFlow = CFG.growthFlow or {}; CFG.growthFlow[i] = code; persist() end, i)
+		end
 
 		-- 2) ELEPHANT STEP
 		local pEle = sub.pages["elephant"]
@@ -11430,19 +11568,8 @@ return function(ctx)
 		makeInput(gLev, "Leveling Phase 2 Max Pets", "Max target pets in garden during Phase 2",
 			function() return tostring(CFG.growthLevP2Max) end, function(t) CFG.growthLevP2Max = tonumber(t) or 1; persist() end, 6)
 
-		-- 5) FLOW CONFIG
-		local pFlow = sub.pages["flow"]
-		local gFlow = makeAccordion(pFlow, "Configuration Flow", 1, true)
-		local stepDesc = { "First step in growth flow", "Second step in growth flow", "Third step in growth flow", "Fourth step in growth flow", "Fifth step in growth flow", "Sixth step in growth flow", }
-		for i = 1, 6 do
-			makeSingleDropdown(gFlow, "Step " .. i, stepDesc[i],
-				function() return FLOW_OPTS end,
-				function() return capStep((CFG.growthFlow or {})[i]) end,
-				function(code) CFG.growthFlow = CFG.growthFlow or {}; CFG.growthFlow[i] = code; persist() end, i)
-		end
-
-		-- Start / Stop Bar
-		refreshGrowthBar = makeStartStopBar(growthPage,
+		-- Start / Stop Bar (PATEN DI BAWAH)
+		makeStartStopBar(sub.bottomBarFrame or flowPage,
 			function() return CFG.growthEnabled end,
 			function()
 				CFG.growthEnabled = true
@@ -11466,46 +11593,479 @@ return function(ctx)
 			{ id = "hatch",  name = "Hatch Team" },
 			{ id = "sell",   name = "Sell Team" },
 			{ id = "config", name = "Config" },
-			{ id = "status", name = "⚙ Status" },
-		}, "core", 1)
+		}, "core", { hasBottomBar = true, hasInfoLine = true })
+
+		-- Helper live updater info line: 🐾 Main (0)  🦕 Bronto (0)  🥚 Hatch (0)  💰 Sell (0)
+		local function countTeam(t)
+			local c = 0
+			if type(t) == "table" then
+				for k, v in pairs(t) do
+					if v == true or (type(v) == "table" and next(v)) then c = c + 1 end
+				end
+			end
+			return c
+		end
+
+		local function updateHatchInfoLine()
+			if not sub.infoLabel then return end
+			local mCount = countTeam(CFG.hatchCoreTeam)
+			local bCount = countTeam(CFG.hatchBrontoTeam)
+			local hCount = countTeam(CFG.hatchHatchTeam)
+			local sCount = countTeam(CFG.hatchSellTeam)
+			sub.infoLabel.Text = ("🐾 <font color=\"#ffffff\"><b>Main (%d)</b></font>   🦕 <font color=\"#ffffff\"><b>Bronto (%d)</b></font>   🥚 <font color=\"#ffffff\"><b>Hatch (%d)</b></font>   💰 <font color=\"#ffffff\"><b>Sell (%d)</b></font>"):format(mCount, bCount, hCount, sCount)
+		end
+		updateHatchInfoLine()
 
 		-- 1) MAIN / CORE TEAM SUB-TAB
 		local pCore = sub.pages["core"]
-		local cAcc = makeAccordion(pCore, "Main Team Configuration", 1, true)
-		makeMultiDropdownDyn(cAcc, "Core Team (Main)", "Percepat egg (incubation speed)",
-			function() return ctx.inventoryPetOptions(CFG.hatchCoreTeam) end, CFG.hatchCoreTeam, function() persist() end, 1)
+		local cDelayAcc = makeAccordion(pCore, "( Main Team ) Delay Settings", 1, true)
+		makeInput(cDelayAcc, "Delay Equip (sec)", "Jeda antar pet pas equip Main team",
+			function() return tostring(CFG.hatchCoreEquipDelay or 0) end,
+			function(t) CFG.hatchCoreEquipDelay = tonumber(t) or 0; persist() end, 1)
+		makeInput(cDelayAcc, "Delay Unequip (sec)", "Jeda antar pet pas unequip Main team",
+			function() return tostring(CFG.hatchCoreUnequipDelay or 1) end,
+			function(t) CFG.hatchCoreUnequipDelay = tonumber(t) or 1; persist() end, 2)
+
+		local cPetAcc = makeAccordion(pCore, "Select Pet (Main Team)", 2, true)
+		makeMultiDropdownDyn(cPetAcc, "Core Team (Main)", "Percepat egg (incubation speed)",
+			function() return ctx.inventoryPetOptions(CFG.hatchCoreTeam) end, CFG.hatchCoreTeam,
+			function() persist(); updateHatchInfoLine() end, 1)
 
 		-- 2) BRONTO TEAM SUB-TAB
 		local pBronto = sub.pages["bronto"]
-		local bAcc = makeAccordion(pBronto, "Bronto Team Configuration", 1, true)
-		makeMultiDropdownDyn(bAcc, "Bronto Team", "+30% berat pet pas hatch (Brontosaurus)",
-			function() return ctx.inventoryPetOptions(CFG.hatchBrontoTeam) end, CFG.hatchBrontoTeam, function() persist() end, 1)
-		makeInput(bAcc, "Bronto Team Delay (sec)", "Tunggu abis swap team sebelum hatch bronto",
-			function() return tostring(CFG.brontoTeamDelay or 5) end, function(t) CFG.brontoTeamDelay = tonumber(t) or 5; persist() end, 2)
+		local bDelayAcc = makeAccordion(pBronto, "( Bronto Team ) Delay Settings", 1, true)
+		makeInput(bDelayAcc, "Delay Equip (sec)", "Jeda antar pet pas equip Bronto team",
+			function() return tostring(CFG.hatchBrontoEquipDelay or 0) end,
+			function(t) CFG.hatchBrontoEquipDelay = tonumber(t) or 0; persist() end, 1)
+		makeInput(bDelayAcc, "Delay Unequip (sec)", "Jeda antar pet pas unequip Bronto team",
+			function() return tostring(CFG.hatchBrontoUnequipDelay or 1) end,
+			function(t) CFG.hatchBrontoUnequipDelay = tonumber(t) or 1; persist() end, 2)
+		makeInput(bDelayAcc, "Bronto Team Delay (sec)", "Tunggu abis swap team sebelum hatch bronto",
+			function() return tostring(CFG.brontoTeamDelay or 5) end,
+			function(t) CFG.brontoTeamDelay = tonumber(t) or 5; persist() end, 3)
+
+		local bPetAcc = makeAccordion(pBronto, "Select Pet (Bronto Team)", 2, true)
+		makeMultiDropdownDyn(bPetAcc, "Bronto Team", "+30% berat pet pas hatch (Brontosaurus)",
+			function() return ctx.inventoryPetOptions(CFG.hatchBrontoTeam) end, CFG.hatchBrontoTeam,
+			function() persist(); updateHatchInfoLine() end, 1)
 
 		-- 3) HATCH TEAM SUB-TAB
 		local pHatch = sub.pages["hatch"]
-		local hAcc = makeAccordion(pHatch, "Hatch Team Configuration", 1, true)
-		makeMultiDropdownDyn(hAcc, "Hatch Team", "Hatch egg ready (Koi = balikin egg)",
-			function() return ctx.inventoryPetOptions(CFG.hatchHatchTeam) end, CFG.hatchHatchTeam, function() persist() end, 1)
-		makeInput(hAcc, "Hatch Team Delay (sec)", "Tunggu abis swap team sebelum hatch",
-			function() return tostring(CFG.hatchTeamDelay or 5) end, function(t) CFG.hatchTeamDelay = tonumber(t) or 5; persist() end, 2)
+		local hDelayAcc = makeAccordion(pHatch, "( Hatch Team ) Delay Settings", 1, true)
+		makeInput(hDelayAcc, "Delay Equip (sec)", "Jeda antar pet pas equip Hatch team",
+			function() return tostring(CFG.hatchTeamEquipDelay or 0) end,
+			function(t) CFG.hatchTeamEquipDelay = tonumber(t) or 0; persist() end, 1)
+		makeInput(hDelayAcc, "Delay Unequip (sec)", "Jeda antar pet pas unequip Hatch team",
+			function() return tostring(CFG.hatchTeamUnequipDelay or 1) end,
+			function(t) CFG.hatchTeamUnequipDelay = tonumber(t) or 1; persist() end, 2)
+		makeInput(hDelayAcc, "Hatch Team Delay (sec)", "Tunggu abis swap team sebelum hatch",
+			function() return tostring(CFG.hatchTeamDelay or 5) end,
+			function(t) CFG.hatchTeamDelay = tonumber(t) or 5; persist() end, 3)
+
+		local hPetAcc = makeAccordion(pHatch, "Select Pet (Hatch Team)", 2, true)
+		makeMultiDropdownDyn(hPetAcc, "Hatch Team", "Hatch egg ready (Koi = balikin egg)",
+			function() return ctx.inventoryPetOptions(CFG.hatchHatchTeam) end, CFG.hatchHatchTeam,
+			function() persist(); updateHatchInfoLine() end, 1)
 
 		-- 4) SELL TEAM SUB-TAB
 		local pSell = sub.pages["sell"]
-		local sAcc = makeAccordion(pSell, "Sell Team Configuration", 1, true)
-		makeMultiDropdownDyn(sAcc, "Sell Team", "Jual + balikin pet jadi egg (Seal the Deal)",
-			function() return ctx.inventoryPetOptions(CFG.hatchSellTeam) end, CFG.hatchSellTeam, function() persist() end, 1)
-		makeInput(sAcc, "Sell Team Delay (sec)", "Tunggu abis swap team sebelum jual",
-			function() return tostring(CFG.sellTeamDelay) end, function(t) CFG.sellTeamDelay = tonumber(t) or 5; persist() end, 2)
-		makeToggle(sAcc, "Auto Boost Before Sell", "Boost pet aktif pakai toy sebelum jual",
-			function() return CFG.autoBoostBeforeSell end, function(v) CFG.autoBoostBeforeSell = v; persist() end, 3)
+		local sDelayAcc = makeAccordion(pSell, "( Sell Team ) Delay Settings", 1, true)
+		makeInput(sDelayAcc, "Delay Equip (sec)", "Jeda antar pet pas equip Sell team",
+			function() return tostring(CFG.hatchSellEquipDelay or 0) end,
+			function(t) CFG.hatchSellEquipDelay = tonumber(t) or 0; persist() end, 1)
+		makeInput(sDelayAcc, "Delay Unequip (sec)", "Jeda antar pet pas unequip Sell team",
+			function() return tostring(CFG.hatchSellUnequipDelay or 1) end,
+			function(t) CFG.hatchSellUnequipDelay = tonumber(t) or 1; persist() end, 2)
+		makeInput(sDelayAcc, "Sell Team Delay (sec)", "Tunggu abis swap team sebelum jual",
+			function() return tostring(CFG.sellTeamDelay or 5) end,
+			function(t) CFG.sellTeamDelay = tonumber(t) or 5; persist() end, 3)
+		makeToggle(sDelayAcc, "Auto Boost Before Sell", "Boost pet aktif pakai toy sebelum jual",
+			function() return CFG.autoBoostBeforeSell end,
+			function(v) CFG.autoBoostBeforeSell = v; persist() end, 4)
 
-		-- 5) CONFIG SUB-TAB (Egg Config + Bronto Config + Sell Config)
+		local sPetAcc = makeAccordion(pSell, "Select Pet (Sell Team)", 2, true)
+		makeMultiDropdownDyn(sPetAcc, "Sell Team", "Jual + balikin pet jadi egg (Seal the Deal)",
+			function() return ctx.inventoryPetOptions(CFG.hatchSellTeam) end, CFG.hatchSellTeam,
+			function() persist(); updateHatchInfoLine() end, 1)
+
+		-- 5) CONFIG SUB-TAB (Sell Table exact as Node Hub + Bulk + Egg Config + Bronto Config)
 		local pCfg = sub.pages["config"]
 
-		-- Egg Configuration
-		local hEgg = makeAccordion(pCfg, "Egg Configuration", 1, true)
+		-- Sell Table Accordion
+		local sCfgAcc = makeAccordion(pCfg, "Sell Configuration", 1, true)
+
+		-- Info Card
+		local infoCard = mk("Frame", {
+			Size = UDim2.new(1, 0, 0, 0),
+			AutomaticSize = Enum.AutomaticSize.Y,
+			BackgroundColor3 = C.panel,
+			LayoutOrder = 1,
+		}, sCfgAcc)
+		corner(infoCard, 8)
+		stroke(infoCard, C.strokeSub, 1, 0.4)
+		pad(infoCard, 8, 8, 8, 8)
+		mk("TextLabel", {
+			Size = UDim2.new(1, 0, 0, 0),
+			AutomaticSize = Enum.AutomaticSize.Y,
+			BackgroundTransparency = 1,
+			Text = "- Weight < KG -> mengikuti pengaturan tombol KEEP / SELL.\n- Weight >= KG -> KEEP (pet aman, tetap disimpan, dan masuk ke proses Bronto).",
+			Font = F.reg,
+			TextSize = 11,
+			TextColor3 = C.txt,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextWrapped = true,
+			LineHeight = 1.3,
+		}, infoCard)
+
+		-- Activation row: Auto Sell Aktif Saat Total Pet
+		local actRow = mk("Frame", {
+			Size = UDim2.new(1, 0, 0, 36),
+			BackgroundTransparency = 1,
+			LayoutOrder = 2,
+		}, sCfgAcc)
+		local actLbl = mk("TextLabel", {
+			Size = UDim2.new(1, -70, 1, 0),
+			BackgroundTransparency = 1,
+			Text = "Auto Sell Aktif Saat Total Pet ( Sesuai Config List Dibawah ) :",
+			Font = F.bold,
+			TextSize = 11.5,
+			TextColor3 = C.txt,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+		}, actRow)
+		local actBoxFrame = mk("Frame", {
+			Size = UDim2.fromOffset(56, 26),
+			Position = UDim2.new(1, -58, 0.5, -13),
+			BackgroundColor3 = C.panel,
+		}, actRow)
+		corner(actBoxFrame, 6)
+		stroke(actBoxFrame, C.strokeSub, 1, 0.5)
+		local actBox = mk("TextBox", {
+			Size = UDim2.fromScale(1, 1),
+			BackgroundTransparency = 1,
+			Text = tostring(CFG.sellWhenReach or 24),
+			Font = F.bold,
+			TextSize = 12,
+			TextColor3 = C.txt,
+			ClearTextOnFocus = false,
+			TextXAlignment = Enum.TextXAlignment.Center,
+		}, actBoxFrame)
+		actBox.FocusLost:Connect(function()
+			CFG.sellWhenReach = tonumber(actBox.Text) or 24
+			actBox.Text = tostring(CFG.sellWhenReach)
+			persist()
+		end)
+
+		-- Sell Mode row: Sell One By One | Sell All
+		local modeRow = mk("Frame", {
+			Size = UDim2.new(1, 0, 0, 36),
+			BackgroundTransparency = 1,
+			LayoutOrder = 3,
+		}, sCfgAcc)
+		mk("TextLabel", {
+			Size = UDim2.new(0, 100, 1, 0),
+			BackgroundTransparency = 1,
+			Text = "Sell Mode :",
+			Font = F.bold,
+			TextSize = 12,
+			TextColor3 = C.txt,
+			TextXAlignment = Enum.TextXAlignment.Left,
+		}, modeRow)
+
+		local modeContainer = mk("Frame", {
+			Size = UDim2.new(1, -100, 0, 28),
+			Position = UDim2.new(0, 100, 0.5, -14),
+			BackgroundTransparency = 1,
+		}, modeRow)
+		mk("UIListLayout", {
+			FillDirection = Enum.FillDirection.Horizontal,
+			Padding = UDim.new(0, 8),
+			VerticalAlignment = Enum.VerticalAlignment.Center,
+		}, modeContainer)
+
+		local bOneByOne = mk("TextButton", {
+			Size = UDim2.new(0.5, -4, 1, 0),
+			BackgroundColor3 = C.row,
+			Text = "Sell One By One",
+			Font = F.bold,
+			TextSize = 12.5,
+			TextColor3 = C.sub,
+			AutoButtonColor = false,
+			LayoutOrder = 1,
+		}, modeContainer)
+		corner(bOneByOne, 6)
+		local sOneStroke = stroke(bOneByOne, C.strokeSub, 1, 0.5)
+
+		local bSellAll = mk("TextButton", {
+			Size = UDim2.new(0.5, -4, 1, 0),
+			BackgroundColor3 = C.row,
+			Text = "Sell All",
+			Font = F.bold,
+			TextSize = 12.5,
+			TextColor3 = C.sub,
+			AutoButtonColor = false,
+			LayoutOrder = 2,
+		}, modeContainer)
+		corner(bSellAll, 6)
+		local sAllStroke = stroke(bSellAll, C.strokeSub, 1, 0.5)
+
+		local function updateSellModeBtns()
+			local isAll = (CFG.sellStyle == "All at Once")
+			bOneByOne.BackgroundColor3 = (not isAll) and C.rowAlt or C.panel
+			bOneByOne.TextColor3 = (not isAll) and C.accSoft or C.sub
+			sOneStroke.Color = (not isAll) and C.acc or C.strokeSub
+
+			bSellAll.BackgroundColor3 = isAll and C.rowAlt or C.panel
+			bSellAll.TextColor3 = isAll and C.accSoft or C.sub
+			sAllStroke.Color = isAll and C.acc or C.strokeSub
+		end
+		updateSellModeBtns()
+
+		bOneByOne.MouseButton1Click:Connect(function()
+			CFG.sellStyle = "One by One"
+			persist()
+			updateSellModeBtns()
+		end)
+		bSellAll.MouseButton1Click:Connect(function()
+			CFG.sellStyle = "All at Once"
+			persist()
+			updateSellModeBtns()
+		end)
+
+		-- Search Bar for Configured Pets Table
+		local searchRow = mk("Frame", {
+			Size = UDim2.new(1, 0, 0, 32),
+			BackgroundColor3 = C.panel,
+			LayoutOrder = 4,
+		}, sCfgAcc)
+		corner(searchRow, 6)
+		stroke(searchRow, C.strokeSub, 1, 0.4)
+		pad(searchRow, 8, 8, 0, 0)
+		local sellTableSearch = mk("TextBox", {
+			Size = UDim2.fromScale(1, 1),
+			BackgroundTransparency = 1,
+			PlaceholderText = "Search Pet Name...",
+			PlaceholderColor3 = C.sub,
+			Text = "",
+			Font = F.reg,
+			TextSize = 13,
+			TextColor3 = C.txt,
+			ClearTextOnFocus = false,
+			TextXAlignment = Enum.TextXAlignment.Left,
+		}, searchRow)
+
+		-- Dynamic Pet List Table Container
+		local tableListFrame = mk("Frame", {
+			Size = UDim2.new(1, 0, 0, 0),
+			AutomaticSize = Enum.AutomaticSize.Y,
+			BackgroundTransparency = 1,
+			LayoutOrder = 5,
+		}, sCfgAcc)
+		mk("UIListLayout", {
+			SortOrder = Enum.SortOrder.LayoutOrder,
+			Padding = UDim.new(0, 4),
+		}, tableListFrame)
+
+		local tableRows = {}
+
+		local function rebuildSellTable()
+			for _, r in ipairs(tableRows) do
+				if r.frame then r.frame:Destroy() end
+			end
+			tableRows = {}
+
+			CFG.hatchSellList = CFG.hatchSellList or {}
+
+			local sortedKeys = {}
+			for k in pairs(CFG.hatchSellList) do sortedKeys[#sortedKeys + 1] = k end
+			table.sort(sortedKeys)
+
+			local q = sellTableSearch.Text:lower()
+
+			for i, petName in ipairs(sortedKeys) do
+				local rule = CFG.hatchSellList[petName]
+				if rule and type(rule) == "table" then
+					local petLower = petName:lower()
+					local visible = (q == "" or petLower:find(q, 1, true) ~= nil)
+
+					local rowFrame = mk("Frame", {
+						Size = UDim2.new(1, 0, 0, 32),
+						BackgroundColor3 = C.panel,
+						Visible = visible,
+						LayoutOrder = i,
+					}, tableListFrame)
+					corner(rowFrame, 6)
+					stroke(rowFrame, C.strokeSub, 1, 0.3)
+					pad(rowFrame, 8, 6, 0, 0)
+
+					-- Left: Pet Name + Sub Rule Text
+					local nameCol = mk("Frame", {
+						Size = UDim2.new(1, -165, 1, 0),
+						BackgroundTransparency = 1,
+					}, rowFrame)
+					local pNameLbl = mk("TextLabel", {
+						Size = UDim2.new(1, 0, 0, 17),
+						Position = UDim2.new(0, 0, 0, 0),
+						BackgroundTransparency = 1,
+						Text = petName,
+						Font = F.bold,
+						TextSize = 13,
+						TextColor3 = C.txt,
+						TextXAlignment = Enum.TextXAlignment.Left,
+						TextTruncate = Enum.TextTruncate.AtEnd,
+					}, nameCol)
+
+					local subRuleLbl = mk("TextLabel", {
+						Size = UDim2.new(1, 0, 0, 14),
+						Position = UDim2.new(0, 0, 0, 16),
+						BackgroundTransparency = 1,
+						Font = F.reg,
+						TextSize = 10.5,
+						TextXAlignment = Enum.TextXAlignment.Left,
+						RichText = true,
+					}, nameCol)
+
+					local function updateRuleText()
+						local curKg = tonumber(rule.kg) or 0.8
+						local curAction = tostring(rule.action or "KEEP"):upper()
+						local col = curAction == "KEEP" and "#5acc78" or "#dc5050"
+						subRuleLbl.Text = string.format("<font color=\"#8c929e\">&lt; %.2f</font> <font color=\"%s\"><b>%s</b></font> <font color=\"#8c929e\">| &gt;= %.2f BRONTO+KEEP</font>", curKg, col, curAction, curKg)
+					end
+					updateRuleText()
+
+					-- KG input box [ 0.8 ]
+					local kgFrame = mk("Frame", {
+						Size = UDim2.fromOffset(46, 24),
+						Position = UDim2.new(1, -160, 0.5, -12),
+						BackgroundColor3 = C.row,
+					}, rowFrame)
+					corner(kgFrame, 5)
+					stroke(kgFrame, C.strokeSub, 1, 0.5)
+					local kgBox = mk("TextBox", {
+						Size = UDim2.fromScale(1, 1),
+						BackgroundTransparency = 1,
+						Text = tostring(rule.kg or 0.8),
+						Font = F.bold,
+						TextSize = 12.5,
+						TextColor3 = C.txt,
+						ClearTextOnFocus = false,
+						TextXAlignment = Enum.TextXAlignment.Center,
+					}, kgFrame)
+					kgBox.FocusLost:Connect(function()
+						rule.kg = tonumber(kgBox.Text) or 0.8
+						kgBox.Text = tostring(rule.kg)
+						persist()
+						updateRuleText()
+					end)
+
+					-- Action button [ KEEP ] / [ SELL ]
+					local actBtn = mk("TextButton", {
+						Size = UDim2.fromOffset(68, 24),
+						Position = UDim2.new(1, -108, 0.5, -12),
+						BackgroundColor3 = rule.action == "SELL" and Color3.fromRGB(120, 35, 35) or Color3.fromRGB(30, 85, 45),
+						Text = tostring(rule.action or "KEEP"):upper(),
+						Font = F.bold,
+						TextSize = 11.5,
+						TextColor3 = Color3.new(1, 1, 1),
+						AutoButtonColor = false,
+					}, rowFrame)
+					corner(actBtn, 5)
+					stroke(actBtn, rule.action == "SELL" and Color3.fromRGB(180, 50, 50) or Color3.fromRGB(50, 150, 70), 1, 0.4)
+
+					actBtn.MouseButton1Click:Connect(function()
+						if rule.action == "SELL" then
+							rule.action = "KEEP"
+							actBtn.Text = "KEEP"
+							actBtn.BackgroundColor3 = Color3.fromRGB(30, 85, 45)
+						else
+							rule.action = "SELL"
+							actBtn.Text = "SELL"
+							actBtn.BackgroundColor3 = Color3.fromRGB(120, 35, 35)
+						end
+						persist()
+						updateRuleText()
+					end)
+
+					-- Delete button [ - ]
+					local delBtn = mk("TextButton", {
+						Size = UDim2.fromOffset(26, 24),
+						Position = UDim2.new(1, -34, 0.5, -12),
+						BackgroundColor3 = Color3.fromRGB(100, 30, 30),
+						Text = "-",
+						Font = F.bold,
+						TextSize = 14,
+						TextColor3 = Color3.new(1, 1, 1),
+						AutoButtonColor = false,
+					}, rowFrame)
+					corner(delBtn, 5)
+					stroke(delBtn, Color3.fromRGB(160, 40, 40), 1, 0.4)
+
+					delBtn.MouseButton1Click:Connect(function()
+						CFG.hatchSellList[petName] = nil
+						persist()
+						rebuildSellTable()
+					end)
+
+					tableRows[#tableRows + 1] = { frame = rowFrame, name = petLower }
+				end
+			end
+		end
+
+		sellTableSearch:GetPropertyChangedSignal("Text"):Connect(function()
+			local q = sellTableSearch.Text:lower()
+			for _, r in ipairs(tableRows) do
+				if r.frame then
+					r.frame.Visible = (q == "" or r.name:find(q, 1, true) ~= nil)
+				end
+			end
+		end)
+
+		rebuildSellTable()
+
+		-- Bulk Controls Below List
+		local bulkPetSelected = ""
+		local bulkKgVal = 0.8
+		local bulkActionVal = "sell"
+
+		local bulkPetOptions = {}
+		for _, p in ipairs(reg.PET_OPTIONS or {}) do
+			bulkPetOptions[#bulkPetOptions + 1] = { name = p, display = p }
+		end
+
+		makeSingleDropdown(sCfgAcc, "Select Pet Type", "Pilih pet untuk ditambah/di-update secara bulk",
+			function() return bulkPetOptions end,
+			function() return bulkPetSelected end,
+			function(code) bulkPetSelected = code end, 6)
+
+		makeInput(sCfgAcc, "KG (Bulk)", "Batas berat target pet",
+			function() return tostring(bulkKgVal) end,
+			function(t) bulkKgVal = tonumber(t) or 0.8 end, 7)
+
+		local ACTION_OPTS = { { name = "sell", display = "sell" }, { name = "keep", display = "keep" } }
+		makeSingleDropdown(sCfgAcc, "Below KG Action (Bulk)", "Aksi jika pet di bawah batas KG",
+			function() return ACTION_OPTS end,
+			function() return bulkActionVal end,
+			function(code) bulkActionVal = code end, 8)
+
+		makeButton(sCfgAcc, "APPLY BULK LIST", "Terapkan setting pet terpilih ke Config List diatas",
+			function()
+				if bulkPetSelected and bulkPetSelected ~= "" then
+					CFG.hatchSellList = CFG.hatchSellList or {}
+					CFG.hatchSellList[bulkPetSelected] = {
+						kg = tonumber(bulkKgVal) or 0.8,
+						action = tostring(bulkActionVal):upper(),
+					}
+					persist()
+					rebuildSellTable()
+				end
+			end, 9)
+
+		-- Manual Sell Now button
+		makeButton(sCfgAcc, "Sell Now (manual)", "Jalankan proses sell sekali sekarang",
+			function() task.spawn(function() pcall(ctx.hatchDoSell) end) end, 10)
+
+		-- Egg Configuration Accordion
+		local hEgg = makeAccordion(pCfg, "Egg Configuration", 2, false)
 		makeSingleDropdown(hEgg, "Egg to Hatch", "Egg dari backpack yg di-place & di-hatch (+ jumlah)",
 			function() return ctx.getEggBackpackOptions() end,
 			function() return tostring(CFG.hatchEggName or "") end,
@@ -11543,8 +12103,8 @@ return function(ctx)
 			function() return tostring(CFG.hatchRejoinPlusThreshold or 20) end,
 			function(t) CFG.hatchRejoinPlusThreshold = tonumber(t) or 20; persist() end, 7)
 
-		-- Bronto Configuration
-		local hBr = makeAccordion(pCfg, "Bronto Configuration", 2, false)
+		-- Bronto Configuration Accordion
+		local hBr = makeAccordion(pCfg, "Bronto Configuration", 3, false)
 		makeMultiDropdown(hBr, "Special Pets", "Pet yg WAJIB di-hatch pakai Bronto team",
 			reg.PET_EGG_ONLY, CFG.brontoSpecialPets, function() persist() end, 1)
 		makeInput(hBr, "Special Pets Weight Filter", "Special cuma kalau weight > ini (0 = ga difilter)",
@@ -11556,96 +12116,18 @@ return function(ctx)
 		makeToggle(hBr, "Don't Hatch Special Pets", "Skip special pet sama sekali (jangan di-hatch)",
 			function() return CFG.brontoSkipSpecial end, function(v) CFG.brontoSkipSpecial = v; persist() end, 5)
 
-		-- Sell Configuration
-		local hSell = makeAccordion(pCfg, "Sell Configuration", 3, false)
-		makeMultiDropdown(hSell, "Pets to Sell", "Tipe pet yg DIJUAL (sisanya difavoritin biar aman)",
-			reg.PET_EGG_OPTIONS, CFG.sellPetTypes, function() persist() end, 1)
-		makeInput(hSell, "Sell Weight Threshold", "Jual kalau base weight < ini",
-			function() return tostring(CFG.sellWeightThreshold) end, function(t) CFG.sellWeightThreshold = tonumber(t) or 5; persist() end, 2)
-		makeInput(hSell, "Sell Age Threshold", "Jual kalau age < ini",
-			function() return tostring(CFG.sellAgeThreshold) end, function(t) CFG.sellAgeThreshold = tonumber(t) or 3; persist() end, 3)
-		makeMultiDropdown(hSell, "Special Pets to Sell", "Pet spesial (jual by weight)",
-			reg.PET_EGG_ONLY, CFG.sellSpecialTypes, function() persist() end, 4)
-		makeInput(hSell, "Special Pet Weight Threshold", "Jual pet spesial dgn weight < ini (0=off)",
-			function() return tostring(CFG.sellSpecialWeight) end, function(t) CFG.sellSpecialWeight = tonumber(t) or 10; persist() end, 5)
-		local SELLMODE = { { name = "Cycle", display = "Cycle" }, { name = "Backpack", display = "Backpack" } }
-		makeSingleDropdown(hSell, "Sell Mode", "Kapan trigger jual",
-			function() return SELLMODE end, function() return CFG.sellMode or "Cycle" end,
-			function(code) CFG.sellMode = code; persist() end, 6)
-		local SELLSTYLE = { { name = "All at Once", display = "All at Once" }, { name = "One by One", display = "One by One" } }
-		makeSingleDropdown(hSell, "Sell Style", "All at Once = jual semua matched sekaligus",
-			function() return SELLSTYLE end, function() return CFG.sellStyle or "All at Once" end,
-			function(code) CFG.sellStyle = code; persist() end, 7)
-		makeInput(hSell, "Sell Every N Cycles", "Jual tiap N cycle hatch",
-			function() return tostring(CFG.sellEveryNCycles) end, function(t) CFG.sellEveryNCycles = tonumber(t) or 1; persist() end, 8)
-		makeInput(hSell, "Sell When Pets Reach", "Jual kalau backpack pet >= ini",
-			function() return tostring(CFG.sellWhenReach) end, function(t) CFG.sellWhenReach = tonumber(t) or 100; persist() end, 9)
-		makeButton(hSell, "Sell Now (manual)", "Jalankan sell sekali sekarang",
-			function() task.spawn(function() pcall(ctx.hatchDoSell) end) end, 10)
-
-		-- 6) STATUS SUB-TAB
-		local pStatus = sub.pages["status"]
-		local hCtrl = makeAccordion(pStatus, "Status & Controls", 1, true)
-		local hLbl = mk("TextLabel", { Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, Text = "Loading...", Font = F.reg, TextSize = 12, TextColor3 = C.txt, TextXAlignment = Enum.TextXAlignment.Left, TextWrapped = true, LineHeight = 1.3, RichText = true, LayoutOrder = 0 }, hCtrl)
-		mk("Frame", { Size = UDim2.new(1, 0, 0, 8), BackgroundTransparency = 1, LayoutOrder = 1 }, hCtrl)
-
-		task.spawn(function()
-			while ctx.alive() do
-				if not onScreen(hatchPage) then task.wait(1) continue end
-				local ok, s = pcall(function() return ctx.getHatchSummary() end)
-				if ok and s then
-					local col = s.status == "RUNNING" and "#5acc78" or "#dc5050"
-					local gr = "#b8bdc7"
-					hLbl.Text = string.format(
-						"<b>Live Status</b>\n" ..
-						"Status: <font color=\"%s\"><b>%s</b></font>\nPhase: <font color=\"#f5c82d\">%s</font>\n\n" ..
-						"Core Team: <font color=\"%s\">%s</font>\nHatch Team: <font color=\"%s\">%s</font>\n" ..
-						"Bronto Team: <font color=\"%s\">%s</font>\nSell Team: <font color=\"%s\">%s</font>\n\n" ..
-						"Pet on Backpack: <font color=\"%s\">%d/%d</font>\n\n" ..
-						"Current Egg: <font color=\"%s\">%s</font>\nEgg Before: <font color=\"%s\">%d</font>\n" ..
-						"Current Amount: <font color=\"%s\">%d</font>\nPlaced: <font color=\"%s\">%d/%d</font>\n" ..
-						"Eggs Hatched: <font color=\"%s\">%d</font>\nSell Cycle: <font color=\"%s\">%d/%d</font>\n\n" ..
-						"<b>Recovery Stat (dari Team)</b>\n" ..
-						"Koi (hatch): <font color=\"%s\">%d ekor \226\134\146 %.1f%%</font>\n" ..
-						"Seal (sell): <font color=\"%s\">%d ekor \226\134\146 %.1f%%</font>",
-						col, s.status, s.phase,
-						gr, s.core, gr, s.hatch, gr, s.bronto, gr, s.sell,
-						gr, s.backpack, s.maxBackpack,
-						gr, s.currentEgg, gr, s.eggBefore, gr, s.currentAmount, gr, s.placed, s.maxPlaced,
-						gr, s.eggsHatched, gr, s.cycleProg, s.cycleTarget,
-						gr, (s.proc or {}).koiCount or 0, (s.proc or {}).koiPct or 0,
-						gr, (s.proc or {}).sealCount or 0, (s.proc or {}).sealPct or 0)
-				end
-				task.wait(1.0)
-			end
-		end)
-
-		local refreshStartStop
-		ctx.ui.rHatchToggle = makeToggle(hCtrl, "Auto Hatch", "Start/Stop auto hatching",
-			function() return CFG.hatchEnabled end,
-			function(v)
-				CFG.hatchEnabled = v
-				persist()
-				if v then ctx.startHatch() else ctx.stopHatch() end
-				if refreshStartStop then refreshStartStop() end
-			end, 2)
-		makeToggle(hCtrl, "Auto Sell", "Auto jual pet pas backpack penuh",
-			function() return CFG.autoSellEnabled end, function(v) CFG.autoSellEnabled = v; persist() end, 3)
-
-		-- START / STOP BAR (Bawah Hatch Page)
-		refreshStartStop = makeStartStopBar(hatchPage,
+		-- START / STOP BAR (PATEN DI BAWAH HATCH PAGE)
+		makeStartStopBar(sub.bottomBarFrame or hatchPage,
 			function() return CFG.hatchEnabled end,
 			function()
 				CFG.hatchEnabled = true
 				persist()
 				ctx.startHatch()
-				if ctx.ui.rHatchToggle then ctx.ui.rHatchToggle() end
 			end,
 			function()
 				CFG.hatchEnabled = false
 				persist()
 				ctx.stopHatch()
-				if ctx.ui.rHatchToggle then ctx.ui.rHatchToggle() end
 			end, 999)
 	end
 
@@ -12238,109 +12720,6 @@ return function(ctx)
 			end, 6)
 	end
 
-	------------------------------------------------------------------ EVENT
-	local eventPage = pageRef["Event"]
-	do
-		-- Accordion pembungkus: Automation Beanstalk Event (NPC Jack)
-		local beanAcc = makeAccordion(eventPage, "Automation Beanstalk Event", 1, true)
-
-		-- Status live: craving trait, growth global, contributed, ready/seeds/target
-		local beanLbl = mk("TextLabel", {
-			Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
-			BackgroundTransparency = 1, Text = "Beanstalk: loading...",
-			Font = F.reg, TextSize = 13, TextColor3 = C.txt,
-			TextXAlignment = Enum.TextXAlignment.Left, TextWrapped = true,
-			LineHeight = 1.35, RichText = true, LayoutOrder = 0
-		}, beanAcc)
-		mk("Frame", { Size = UDim2.new(1, 0, 0, 8), BackgroundTransparency = 1, LayoutOrder = 1 }, beanAcc)
-		task.spawn(function()
-			while ctx.alive() do
-				if not onScreen(eventPage) then task.wait(1) continue end
-				local ok, s = pcall(function() return ctx.getBeanstalkSummary() end)
-				if ok and s then
-					if not s.active then
-						beanLbl.Text = "Beanstalk: <font color=\"#dc5050\"><b>EVENT TIDAK AKTIF</b></font>"
-					else
-						local cv = s.craving or "-"
-						-- daftar semua trait yang mungkin diminta; yang aktif di-highlight
-						-- ketanam per jenis: "Vegetable 50/20" (hijau kalau udah >= target, kuning kalau kurang)
-						-- yang lagi diminta ditandai bintang.
-						local rows = {}
-						for _, e in ipairs(s.perTrait or {}) do
-							local reached = e.target > 0 and e.planted >= e.target
-							local col = reached and "#5acc78" or "#f5c82d"
-							local star = e.craving and " *" or ""
-							rows[#rows + 1] = ("%s <font color=\"%s\"><b>%d/%d</b></font>%s"):format(e.trait, col, e.planted, e.target, star)
-						end
-						beanLbl.Text = string.format(
-							"Sekarang minta: <font color=\"#5acc78\"><b>%s</b></font> Plant   Growth: <font color=\"#f5c82d\"><b>%s</b></font>   Kontribusi: <font color=\"#8c929e\">%s</font>\n%s",
-							cv, tostring(s.growth or "-"), tostring(s.contributed or 0),
-							table.concat(rows, "   "))
-					end
-				end
-				task.wait(1)
-			end
-		end)
-
-		-- Input: jumlah tanam per siklus
-		makeInput(beanAcc, "Jumlah Plant", "Target tanam per jenis trait. 0 = ga nanam.",
-			function() return tostring(CFG.beanstalkPlantCount) end,
-			function(txt) CFG.beanstalkPlantCount = tonumber(txt) or 0; persist() end, 2)
-
-		-- Toggle 1: Auto Plant — top-up SEMUA trait ke target (pre-stock)
-		makeToggle(beanAcc, "Auto Plant (Semua Trait)", "Tanam tiap trait sampai target, 1 jenis per giliran.",
-			function() return CFG.beanstalkPlantEnabled end,
-			function(v)
-				CFG.beanstalkPlantEnabled = v; persist()
-				if v then if ctx.startBeanstalk then ctx.startBeanstalk() end elseif not ctx.beanstalkAnyOn() then ctx.stopBeanstalk() end
-			end, 3)
-
-		-- Toggle 2: Auto Collect fruit sesuai craving
-		makeToggle(beanAcc, "Auto Collect (Craving)", "Panen HANYA fruit yang sesuai craving ke backpack.",
-			function() return CFG.beanstalkCollectEnabled end,
-			function(v)
-				CFG.beanstalkCollectEnabled = v; persist()
-				if v then if ctx.startBeanstalk then ctx.startBeanstalk() end elseif not ctx.beanstalkAnyOn() then ctx.stopBeanstalk() end
-			end, 4)
-
-		-- Toggle 3: Auto Submit (setor bulk, per-plant, aman)
-		makeToggle(beanAcc, "Auto Submit ke Beanstalk", "Setor semua produce craving (bulk).",
-			function() return CFG.beanstalkSubmitEnabled end,
-			function(v)
-				CFG.beanstalkSubmitEnabled = v; persist()
-				if v then if ctx.startBeanstalk then ctx.startBeanstalk() end elseif not ctx.beanstalkAnyOn() then ctx.stopBeanstalk() end
-			end, 5)
-
-		-- Toggle 4: Auto Claim Reward (loop sendiri, ga butuh plant/collect/submit)
-		makeToggle(beanAcc, "Auto Claim Reward", "Claim reward point yg udah kebuka.",
-			function() return CFG.beanstalkClaimEnabled end,
-			function(v)
-				CFG.beanstalkClaimEnabled = v; persist()
-				if v then if ctx.startBeanstalkClaim then ctx.startBeanstalkClaim() end else if ctx.stopBeanstalkClaim then ctx.stopBeanstalkClaim() end end
-			end, 6)
-
-		-- Toggle 5: Auto Jual saat mentok (backpack penuh trait salah -> Sell_Inventory SEMUA)
-		makeToggle(beanAcc, "Auto Sell Backpack at Full", "Jual semua tanaman yang ada di backpack.",
-			function() return CFG.beanstalkAutoSellEnabled end,
-			function(v) CFG.beanstalkAutoSellEnabled = v; persist() end, 7)
-
-		-- Toggle 6: Auto Server Hop (cari server growth < 900, join-check-hop)
-		makeToggle(beanAcc, "Auto Hop Server (Growth < 900)", "Pindah server sampai nemu beanstalk belum penuh.",
-			function() return CFG.beanstalkHopEnabled end,
-			function(v)
-				CFG.beanstalkHopEnabled = v; persist()
-				if v then if ctx.startBeanstalkHop then ctx.startBeanstalkHop() end else if ctx.stopBeanstalkHop then ctx.stopBeanstalkHop() end end
-			end, 8)
-
-		------------------------------------------------------------------ Beanstalk Event Shop (auto buy)
-		local beanShopAcc = makeAccordion(eventPage, "Beanstalk Event Shop", 2, false)
-		makeMultiDropdownDyn(beanShopAcc, "Pilih Item", "'All' = beli semua yg ada stock.",
-			function() return ctx.getBeanstalkShopOptions() end, CFG.buyBeanstalkShopNames, function() persist() end, 1)
-		makeToggle(beanShopAcc, "Enable Auto Buy Beanstalk Shop", "Auto-beli item terpilih tiap ada stock.",
-			function() return CFG.buyBeanstalkShopEnabled end,
-			function(v) CFG.buyBeanstalkShopEnabled = v; persist(); if v and ctx.startBuyBeanstalkShop then ctx.startBuyBeanstalkShop() elseif ctx.stopBuyBeanstalkShop then ctx.stopBuyBeanstalkShop() end end, 2)
-	end
-
 	------------------------------------------------------------------ PET (PNP)
 	local pet = pageRef["Pet"]
 	local v1Render, v2Render -- buat sync visual mutual-exclusion
@@ -12417,6 +12796,15 @@ return function(ctx)
 
 	-- Accordion: Automation Trade
 	local at = makeAccordion(inv, "Automation Trade", 1, true)
+
+	local TRADE_METHODS = {
+		{ name = "ticket", display = "Ticket (Normal Trade)" },
+		{ name = "gift", display = "Gift (Direct Gift, No Ticket)" },
+	}
+	makeSingleDropdown(at, "Trade Method", "Kirim via Trading Ticket atau Gift pet langsung",
+		function() return TRADE_METHODS end,
+		function() return CFG.tradeMethod == "gift" and "Gift (Direct Gift, No Ticket)" or "Ticket (Normal Trade)" end,
+		function(v) CFG.tradeMethod = v; persist() end, 0)
 
 	local targetOptions = function()
 		local out = {}
@@ -12499,6 +12887,18 @@ return function(ctx)
 		function(v) CFG.autoFavorite = v; persist(); if v then ctx.startAutoFavorite() else ctx.stopAutoFavorite() end end, 1)
 	makeMultiDropdown(fav, "Favourite Pet Types", "Pet types to keep favorited",
 		reg.PET_OPTIONS, CFG.favoritePetTypes, function() persist() end, 2)
+
+	-- Accordion: Automation Unfavourite Pets
+	local unfav = makeAccordion(inv, "Automation Unfavourite Pets", 4, false)
+	makeToggle(unfav, "Auto Unfavourite Pets", "Automatically unfavorite selected pet types",
+		function() return CFG.autoUnfavoritePets end,
+		function(v)
+			CFG.autoUnfavoritePets = v; persist()
+			if v and ctx.startAutoUnfavorite then ctx.startAutoUnfavorite()
+			elseif ctx.stopAutoUnfavorite then ctx.stopAutoUnfavorite() end
+		end, 1)
+	makeMultiDropdown(unfav, "Unfavourite Pet Types", "Pet types to automatically unfavorite (kosong = semua pet)",
+		reg.PET_OPTIONS, CFG.unfavoritePetTypes, function() persist() end, 2)
 
 	------------------------------------------------------------------ MISC (log & webhooks)
 	local misc = pageRef["Misc"]
@@ -12627,24 +13027,6 @@ return function(ctx)
 				end
 			end)
 		end, 2)
-
-	makeButton(whAcc, "Test Egg Minus Webhook", "Send a test notification for Auto Rejoin on Egg Minus",
-		function()
-			if not CFG.webhookUrl or CFG.webhookUrl == "" then
-				ctx.log("[Webhook Test] Gagal: Webhook URL kosong!")
-				return
-			end
-			if ctx.testRejoinWebhook then ctx.testRejoinWebhook() end
-		end, 3)
-
-	makeButton(whAcc, "Test Egg Plus Webhook", "Send a test notification for Auto Rejoin on Egg Plus",
-		function()
-			if not CFG.webhookUrl or CFG.webhookUrl == "" then
-				ctx.log("[Webhook Test] Gagal: Webhook URL kosong!")
-				return
-			end
-			if ctx.testRejoinPlusWebhook then ctx.testRejoinPlusWebhook() end
-		end, 4)
 
 	-- Performance / Graphics Optimization Accordion
 	local perfAcc = makeAccordion(misc, "Performance", 6, false)
@@ -12848,9 +13230,9 @@ return function(ctx)
 		end)
 	end
 
-	----------------------------------------------------------------- Main Window (Compact & Ultra-Legible for Mobile/Android)
+	----------------------------------------------------------------- Main Window (Responsive & Ultra-Legible for Android/Mobile)
 	local main = mk("Frame", {
-		Size = UDim2.fromOffset(640, 385),
+		Size = UDim2.new(0, 640, 0.92, 0),
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.5),
 		BackgroundColor3 = C.bg,
@@ -12875,10 +13257,11 @@ return function(ctx)
 	local function fitScale()
 		local cam = workspace.CurrentCamera
 		local vp = cam and cam.ViewportSize or Vector2.new(1280, 720)
-		local w, h = main.Size.X.Offset, main.Size.Y.Offset
-		-- Margin hanya 16px agar di layar HP muat maksimal tanpa mengecil berlebihan
-		local s = math.min(1, (vp.X - 16) / w, (vp.Y - 16) / h)
-		uiScale.Scale = math.max(0.62, s)
+		local w = main.Size.X.Offset > 0 and main.Size.X.Offset or 640
+		local targetH = vp.Y * 0.92
+		-- Skala lebar jika layar sempit (< 656px)
+		local s = math.min(1, (vp.X - 16) / w, (vp.Y - 16) / targetH)
+		uiScale.Scale = math.clamp(s, 0.7, 1)
 	end
 	fitScale()
 	pcall(function()
@@ -13051,7 +13434,7 @@ return function(ctx)
 		main.Size = UDim2.fromOffset(0, 0)
 		fitScale()
 		TS:Create(main, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-			Size = UDim2.fromOffset(640, 385),
+			Size = UDim2.new(0, 640, 0.92, 0),
 			BackgroundTransparency = 0.04,
 		}):Play()
 	end)
