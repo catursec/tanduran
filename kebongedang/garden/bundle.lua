@@ -1,6 +1,6 @@
 -- AUTO-GENERATED oleh tools/bundle.js — JANGAN edit manual.
 -- Edit modul-nya langsung, terus run `node tools/bundle.js`.
--- 43 modul, di-generate 2026-09-14T21:47:29.056Z
+-- 43 modul, di-generate 2026-09-14T23:45:40.025Z
 return {
 	["app.lua"] = [=[
 --[[ app.lua — init akhir garden: default tab Inventory + auto-resume automation. ]]
@@ -10860,8 +10860,8 @@ return function(ctx)
 			Visible = openByDefault or false,
 			LayoutOrder = 3,
 		}, container)
-		pad(body, 10, 10, 6, 10)
-		mk("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder }, body)
+		pad(body, 8, 8, 4, 6)
+		mk("UIListLayout", { Padding = UDim.new(0, 3), SortOrder = Enum.SortOrder.LayoutOrder }, body)
 
 		head.MouseEnter:Connect(function()
 			TS:Create(cardStroke, TweenInfo.new(0.2), { Color = C.stroke, Transparency = 0.1 }):Play()
@@ -11146,8 +11146,8 @@ return function(ctx)
 				ScrollBarImageColor3 = C.acc,
 				BorderSizePixel = 0,
 			}, subContent)
-			pad(subPg, 2, 6, 2, 6)
-			mk("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, subPg)
+			pad(subPg, 2, 4, 2, 4)
+			mk("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder }, subPg)
 
 			pages[id] = subPg
 		end
@@ -11717,16 +11717,114 @@ return function(ctx)
 			LineHeight = 1.3,
 		}, infoCard)
 
-		-- Activation row: Auto Sell Aktif Saat Total Pet
-		local actRow = mk("Frame", {
+		-- Auto Sell Enable Toggle
+		makeToggle(sCfgAcc, "Auto Sell Pets", "Jual otomatis pet di backpack sesuai pengaturan",
+			function() return CFG.autoSellEnabled end,
+			function(v) CFG.autoSellEnabled = v; persist() end, 2)
+
+		-- Sell Trigger Mode row: Cycle | Total Pets (Backpack)
+		local trigRow = mk("Frame", {
 			Size = UDim2.new(1, 0, 0, 36),
 			BackgroundTransparency = 1,
+			LayoutOrder = 3,
+		}, sCfgAcc)
+		mk("TextLabel", {
+			Size = UDim2.new(0, 110, 1, 0),
+			BackgroundTransparency = 1,
+			Text = "Sell Trigger :",
+			Font = F.bold,
+			TextSize = 12,
+			TextColor3 = C.txt,
+			TextXAlignment = Enum.TextXAlignment.Left,
+		}, trigRow)
+
+		local trigContainer = mk("Frame", {
+			Size = UDim2.new(1, -110, 0, 28),
+			Position = UDim2.new(0, 110, 0.5, -14),
+			BackgroundTransparency = 1,
+		}, trigRow)
+		mk("UIListLayout", {
+			FillDirection = Enum.FillDirection.Horizontal,
+			Padding = UDim.new(0, 6),
+			VerticalAlignment = Enum.VerticalAlignment.Center,
+		}, trigContainer)
+
+		local bTrigCycle = mk("TextButton", {
+			Size = UDim2.new(0.5, -3, 1, 0),
+			BackgroundColor3 = C.row,
+			Text = "By Cycle",
+			Font = F.bold,
+			TextSize = 12,
+			TextColor3 = C.sub,
+			AutoButtonColor = false,
+			LayoutOrder = 1,
+		}, trigContainer)
+		corner(bTrigCycle, 6)
+		local sTrigCycleStroke = stroke(bTrigCycle, C.strokeSub, 1, 0.5)
+
+		local bTrigBp = mk("TextButton", {
+			Size = UDim2.new(0.5, -3, 1, 0),
+			BackgroundColor3 = C.row,
+			Text = "Total Pet (BP)",
+			Font = F.bold,
+			TextSize = 12,
+			TextColor3 = C.sub,
+			AutoButtonColor = false,
 			LayoutOrder = 2,
+		}, trigContainer)
+		corner(bTrigBp, 6)
+		local sTrigBpStroke = stroke(bTrigBp, C.strokeSub, 1, 0.5)
+
+		-- Threshold Rows:
+		-- 1) Sell Every N Cycles row
+		local cycleRow = mk("Frame", {
+			Size = UDim2.new(1, 0, 0, 32),
+			BackgroundTransparency = 1,
+			LayoutOrder = 4,
+		}, sCfgAcc)
+		mk("TextLabel", {
+			Size = UDim2.new(1, -70, 1, 0),
+			BackgroundTransparency = 1,
+			Text = "Sell Tiap Berapa Cycle (Hatch Round) :",
+			Font = F.bold,
+			TextSize = 11.5,
+			TextColor3 = C.txt,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+		}, cycleRow)
+		local cycleBoxFrame = mk("Frame", {
+			Size = UDim2.fromOffset(56, 26),
+			Position = UDim2.new(1, -58, 0.5, -13),
+			BackgroundColor3 = C.panel,
+		}, cycleRow)
+		corner(cycleBoxFrame, 6)
+		stroke(cycleBoxFrame, C.strokeSub, 1, 0.5)
+		local cycleBox = mk("TextBox", {
+			Size = UDim2.fromScale(1, 1),
+			BackgroundTransparency = 1,
+			Text = tostring(CFG.sellEveryNCycles or 1),
+			Font = F.bold,
+			TextSize = 12,
+			TextColor3 = C.txt,
+			ClearTextOnFocus = false,
+			TextXAlignment = Enum.TextXAlignment.Center,
+		}, cycleBoxFrame)
+		cycleBox.FocusLost:Connect(function()
+			CFG.sellEveryNCycles = math.max(1, tonumber(cycleBox.Text) or 1)
+			cycleBox.Text = tostring(CFG.sellEveryNCycles)
+			persist()
+		end)
+
+		-- 2) Activation row: Auto Sell Aktif Saat Total Pet
+		local actRow = mk("Frame", {
+			Size = UDim2.new(1, 0, 0, 32),
+			BackgroundTransparency = 1,
+			LayoutOrder = 5,
 		}, sCfgAcc)
 		local actLbl = mk("TextLabel", {
 			Size = UDim2.new(1, -70, 1, 0),
 			BackgroundTransparency = 1,
-			Text = "Auto Sell Aktif Saat Total Pet ( Sesuai Config List Dibawah ) :",
+			Text = "Auto Sell Aktif Saat Total Pet :",
 			Font = F.bold,
 			TextSize = 11.5,
 			TextColor3 = C.txt,
@@ -11756,16 +11854,42 @@ return function(ctx)
 			persist()
 		end)
 
-		-- Sell Mode row: Sell One By One | Sell All
+		local function updateSellTriggerBtns()
+			local isCycle = (CFG.sellMode == "Cycle")
+			bTrigCycle.BackgroundColor3 = isCycle and C.rowAlt or C.panel
+			bTrigCycle.TextColor3 = isCycle and C.accSoft or C.sub
+			sTrigCycleStroke.Color = isCycle and C.acc or C.strokeSub
+
+			bTrigBp.BackgroundColor3 = (not isCycle) and C.rowAlt or C.panel
+			bTrigBp.TextColor3 = (not isCycle) and C.accSoft or C.sub
+			sTrigBpStroke.Color = (not isCycle) and C.acc or C.strokeSub
+
+			cycleRow.Visible = isCycle
+			actRow.Visible = not isCycle
+		end
+		updateSellTriggerBtns()
+
+		bTrigCycle.MouseButton1Click:Connect(function()
+			CFG.sellMode = "Cycle"
+			persist()
+			updateSellTriggerBtns()
+		end)
+		bTrigBp.MouseButton1Click:Connect(function()
+			CFG.sellMode = "Backpack"
+			persist()
+			updateSellTriggerBtns()
+		end)
+
+		-- Sell Style row: Sell One By One | Sell All
 		local modeRow = mk("Frame", {
 			Size = UDim2.new(1, 0, 0, 36),
 			BackgroundTransparency = 1,
-			LayoutOrder = 3,
+			LayoutOrder = 6,
 		}, sCfgAcc)
 		mk("TextLabel", {
-			Size = UDim2.new(0, 100, 1, 0),
+			Size = UDim2.new(0, 110, 1, 0),
 			BackgroundTransparency = 1,
-			Text = "Sell Mode :",
+			Text = "Sell Style :",
 			Font = F.bold,
 			TextSize = 12,
 			TextColor3 = C.txt,
@@ -11773,22 +11897,22 @@ return function(ctx)
 		}, modeRow)
 
 		local modeContainer = mk("Frame", {
-			Size = UDim2.new(1, -100, 0, 28),
-			Position = UDim2.new(0, 100, 0.5, -14),
+			Size = UDim2.new(1, -110, 0, 28),
+			Position = UDim2.new(0, 110, 0.5, -14),
 			BackgroundTransparency = 1,
 		}, modeRow)
 		mk("UIListLayout", {
 			FillDirection = Enum.FillDirection.Horizontal,
-			Padding = UDim.new(0, 8),
+			Padding = UDim.new(0, 6),
 			VerticalAlignment = Enum.VerticalAlignment.Center,
 		}, modeContainer)
 
 		local bOneByOne = mk("TextButton", {
-			Size = UDim2.new(0.5, -4, 1, 0),
+			Size = UDim2.new(0.5, -3, 1, 0),
 			BackgroundColor3 = C.row,
 			Text = "Sell One By One",
 			Font = F.bold,
-			TextSize = 12.5,
+			TextSize = 12,
 			TextColor3 = C.sub,
 			AutoButtonColor = false,
 			LayoutOrder = 1,
@@ -11797,11 +11921,11 @@ return function(ctx)
 		local sOneStroke = stroke(bOneByOne, C.strokeSub, 1, 0.5)
 
 		local bSellAll = mk("TextButton", {
-			Size = UDim2.new(0.5, -4, 1, 0),
+			Size = UDim2.new(0.5, -3, 1, 0),
 			BackgroundColor3 = C.row,
 			Text = "Sell All",
 			Font = F.bold,
-			TextSize = 12.5,
+			TextSize = 12,
 			TextColor3 = C.sub,
 			AutoButtonColor = false,
 			LayoutOrder = 2,
@@ -11836,7 +11960,7 @@ return function(ctx)
 		local searchRow = mk("Frame", {
 			Size = UDim2.new(1, 0, 0, 32),
 			BackgroundColor3 = C.panel,
-			LayoutOrder = 4,
+			LayoutOrder = 7,
 		}, sCfgAcc)
 		corner(searchRow, 6)
 		stroke(searchRow, C.strokeSub, 1, 0.4)
@@ -11859,7 +11983,7 @@ return function(ctx)
 			Size = UDim2.new(1, 0, 0, 0),
 			AutomaticSize = Enum.AutomaticSize.Y,
 			BackgroundTransparency = 1,
-			LayoutOrder = 5,
+			LayoutOrder = 8,
 		}, sCfgAcc)
 		mk("UIListLayout", {
 			SortOrder = Enum.SortOrder.LayoutOrder,
@@ -12023,46 +12147,52 @@ return function(ctx)
 		rebuildSellTable()
 
 		-- Bulk Controls Below List
-		local bulkPetSelected = ""
+		local bulkPetSet = {}
 		local bulkKgVal = 0.8
 		local bulkActionVal = "sell"
 
-		local bulkPetOptions = {}
-		for _, p in ipairs(reg.PET_OPTIONS or {}) do
-			bulkPetOptions[#bulkPetOptions + 1] = { name = p, display = p }
-		end
-
-		makeSingleDropdown(sCfgAcc, "Select Pet Type", "Pilih pet untuk ditambah/di-update secara bulk",
-			function() return bulkPetOptions end,
-			function() return bulkPetSelected end,
-			function(code) bulkPetSelected = code end, 6)
+		local updateBulkPetDd = makeMultiDropdown(sCfgAcc, "Select Pet Types (Bulk)", "Pilih beberapa jenis pet sekaligus",
+			reg.PET_OPTIONS, bulkPetSet, nil, 9)
 
 		makeInput(sCfgAcc, "KG (Bulk)", "Batas berat target pet",
 			function() return tostring(bulkKgVal) end,
-			function(t) bulkKgVal = tonumber(t) or 0.8 end, 7)
+			function(t) bulkKgVal = tonumber(t) or 0.8 end, 10)
 
 		local ACTION_OPTS = { { name = "sell", display = "sell" }, { name = "keep", display = "keep" } }
 		makeSingleDropdown(sCfgAcc, "Below KG Action (Bulk)", "Aksi jika pet di bawah batas KG",
 			function() return ACTION_OPTS end,
 			function() return bulkActionVal end,
-			function(code) bulkActionVal = code end, 8)
+			function(code) bulkActionVal = code end, 11)
 
-		makeButton(sCfgAcc, "APPLY BULK LIST", "Terapkan setting pet terpilih ke Config List diatas",
+		makeButton(sCfgAcc, "APPLY BULK LIST", "Terapkan setting ke semua pet terpilih di atas",
 			function()
-				if bulkPetSelected and bulkPetSelected ~= "" then
-					CFG.hatchSellList = CFG.hatchSellList or {}
-					CFG.hatchSellList[bulkPetSelected] = {
-						kg = tonumber(bulkKgVal) or 0.8,
-						action = tostring(bulkActionVal):upper(),
-					}
+				CFG.hatchSellList = CFG.hatchSellList or {}
+				local countApplied = 0
+				for petName, isSel in pairs(bulkPetSet) do
+					if isSel then
+						CFG.hatchSellList[petName] = {
+							kg = tonumber(bulkKgVal) or 0.8,
+							action = tostring(bulkActionVal):upper(),
+						}
+						countApplied = countApplied + 1
+					end
+				end
+				if countApplied > 0 then
 					persist()
 					rebuildSellTable()
+					if ctx.log then ctx.log(("✦ Bulk sell config diterapkan untuk %d jenis pet"):format(countApplied)) end
 				end
-			end, 9)
+			end, 12)
+
+		makeButton(sCfgAcc, "CLEAR BULK SELECTION", "Kosongkan checklist pet terpilih",
+			function()
+				for k in pairs(bulkPetSet) do bulkPetSet[k] = nil end
+				if updateBulkPetDd then updateBulkPetDd() end
+			end, 13)
 
 		-- Manual Sell Now button
 		makeButton(sCfgAcc, "Sell Now (manual)", "Jalankan proses sell sekali sekarang",
-			function() task.spawn(function() pcall(ctx.hatchDoSell) end) end, 10)
+			function() task.spawn(function() pcall(ctx.hatchDoSell) end) end, 14)
 
 		-- Egg Configuration Accordion
 		local hEgg = makeAccordion(pCfg, "Egg Configuration", 2, false)
