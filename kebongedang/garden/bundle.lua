@@ -1,6 +1,6 @@
 -- AUTO-GENERATED oleh tools/bundle.js — JANGAN edit manual.
 -- Edit modul-nya langsung, terus run `node tools/bundle.js`.
--- 43 modul, di-generate 2026-09-13T16:22:29.682Z
+-- 43 modul, di-generate 2026-09-14T16:46:36.207Z
 return {
 	["app.lua"] = [=[
 --[[ app.lua — init akhir garden: default tab Inventory + auto-resume automation. ]]
@@ -5163,6 +5163,60 @@ return function(ctx)
 		sendRejoinWebhook("Plus", eggName, 220, thresh, thresh)
 	end
 
+	local function sendStartHatchWebhook()
+		local url = CFG.webhookUrl
+		if not url or url == "" or not ctx.sendWebhook then return end
+		local eggName = CFG.hatchEggName or "Rare Egg"
+		local eggBefore = ctx.state.hatchEggBefore or 0
+		local bpc = 0
+		for _, t in ipairs((function() local o={}; local bp=LP:FindFirstChildOfClass("Backpack"); for _,src in ipairs({bp,LP.Character}) do if src then for _,c in ipairs(src:GetChildren()) do if c:IsA("Tool") and c:GetAttribute("PET_UUID") then o[#o+1]=c end end end end; return o end)()) do bpc=bpc+1 end
+		local maxBp = 0
+		pcall(function() local d = require(game:GetService("ReplicatedStorage").Modules.GetData)(LP); if d then maxBp = tonumber(d.PetsData.MutableStats.MaxPetsInInventory) or 0 end end)
+		local rec = ctx.getRecoveryStat and ctx.getRecoveryStat() or {}
+		local payload = {
+			embeds = { {
+				title = "🥚 CeszParadise — Auto Hatch Started",
+				color = 3066993,
+				description = "> **Auto Hatch** telah dimulai! Memulai siklus hatching otomatis...",
+				fields = {
+					{
+						name = "**Profile :**",
+						value = ("> Username : **%s**\n> Display : **%s**"):format(LP.Name, LP.DisplayName or LP.Name),
+						inline = false,
+					},
+					{
+						name = "**Egg Info :**",
+						value = ("> Egg Name : `%s`\n> Egg Before : `%d`\n> Max Placed : `%d`"):format(eggName, eggBefore, CFG.hatchMaxPlaced or 8),
+						inline = false,
+					},
+					{
+						name = "**Inventory :**",
+						value = ("> Pet on Backpack : `%d/%d`"):format(bpc, maxBp),
+						inline = false,
+					},
+					{
+						name = "**Recovery Stat :**",
+						value = ("> Koi (hatch) : `%d ekor → %.1f%%`\n> Seal (sell) : `%d ekor → %.1f%%`"):format(
+							(rec.koiCount or 0), (rec.koiPct or 0),
+							(rec.sealCount or 0), (rec.sealPct or 0)),
+						inline = false,
+					},
+					{
+						name = "**Sell Config :**",
+						value = ("> Sell Mode : `%s`\n> Sell Style : `%s`\n> Sell Every : `%d cycles`"):format(
+							CFG.sellMode or "Cycle", CFG.sellStyle or "All at Once", CFG.sellEveryNCycles or 1),
+						inline = false,
+					},
+				},
+				footer = {
+					text = ("Server Version: %s\n%s"):format(tostring(game.PlaceVersion), os.date("%B %d | %I:%M %p")),
+					icon_url = "https://raw.githubusercontent.com/catursec/tanduran/main/kebongedang/Logo/logo_icon.png",
+				},
+			} },
+		}
+		pcall(function() ctx.sendWebhook(url, payload, ctx) end)
+	end
+
 	local function checkEggThreshold()
 		local eggName = CFG.hatchEggName or "Rare Egg"
 		local curAmt = totalEggCount(eggName)
@@ -5748,6 +5802,7 @@ return function(ctx)
 		ctx.state.hatchStartTime = os.time()
 		ctx.state.hatchCycleStartTime = os.time()
 		task.spawn(loop)
+		task.spawn(sendStartHatchWebhook)
 		if (CFG.hatchRejoinMinusEnabled or CFG.hatchRejoinPlusEnabled) and ctx.startEggMinusWatcher then
 			ctx.startEggMinusWatcher()
 		end
@@ -9879,30 +9934,30 @@ return function(ctx)
 
 	local function labels(parent, title, desc, rightPad)
 		local txts = mk("Frame", {
-			Size = UDim2.new(1, -(rightPad or 160), 1, 0),
+			Size = UDim2.new(1, -(rightPad or 130), 1, 0),
 			BackgroundTransparency = 1,
 		}, parent)
 		pad(txts, 4, 0, 0, 0)
 
 		local tLbl = mk("TextLabel", {
-			Size = UDim2.new(1, 0, 0, 26),
-			Position = UDim2.fromOffset(0, desc and 4 or 16),
+			Size = UDim2.new(1, 0, 0, 18),
+			Position = UDim2.fromOffset(0, desc and 2 or 6),
 			BackgroundTransparency = 1,
 			Text = title,
 			Font = F.bold,
-			TextSize = 16.5,
+			TextSize = 12.5,
 			TextColor3 = C.txt,
 			TextXAlignment = Enum.TextXAlignment.Left,
 		}, txts)
 
 		if desc then
 			local dLbl = mk("TextLabel", {
-				Size = UDim2.new(1, 0, 0, 22),
-				Position = UDim2.fromOffset(0, 30),
+				Size = UDim2.new(1, 0, 0, 14),
+				Position = UDim2.fromOffset(0, 19),
 				BackgroundTransparency = 1,
 				Text = desc,
 				Font = F.reg,
-				TextSize = 13.5,
+				TextSize = 10.5,
 				TextColor3 = C.sub,
 				TextXAlignment = Enum.TextXAlignment.Left,
 				TextTruncate = Enum.TextTruncate.AtEnd,
@@ -9924,20 +9979,20 @@ return function(ctx)
 	----------------------------------------------------------------- Modern Toggle Pill
 	local function makeToggle(parent, title, desc, getv, setv, order)
 		local row = mk("Frame", {
-			Size = UDim2.new(1, 0, 0, 60),
+			Size = UDim2.new(1, 0, 0, 36),
 			BackgroundTransparency = 1,
 			LayoutOrder = order,
 		}, parent)
-		labels(row, title, desc, 84)
+		labels(row, title, desc, 56)
 
 		local pill = mk("TextButton", {
-			Size = UDim2.fromOffset(56, 30),
-			Position = UDim2.new(1, -62, 0.5, -15),
+			Size = UDim2.fromOffset(44, 22),
+			Position = UDim2.new(1, -50, 0.5, -11),
 			BackgroundColor3 = C.panel,
 			Text = "",
 			AutoButtonColor = false,
 		}, row)
-		corner(pill, 15)
+		corner(pill, 11)
 		local pillStroke = stroke(pill, C.strokeSub, 1.2, 0.4)
 
 		local pillGrad = mk("Frame", {
@@ -9947,21 +10002,21 @@ return function(ctx)
 			BorderSizePixel = 0,
 			ZIndex = 2,
 		}, pill)
-		corner(pillGrad, 15)
+		corner(pillGrad, 11)
 		grad(pillGrad, 0, C.acc, C.acc2)
 
 		local dot = mk("Frame", {
-			Size = UDim2.fromOffset(24, 24),
+			Size = UDim2.fromOffset(16, 16),
 			Position = UDim2.fromOffset(3, 3),
 			BackgroundColor3 = C.sub,
 			ZIndex = 3,
 		}, pill)
-		corner(dot, 12)
+		corner(dot, 8)
 		stroke(dot, Color3.new(1, 1, 1), 1, 0.6)
 
 		local function render(animate)
 			local on = getv()
-			local targetPos = on and UDim2.fromOffset(29, 3) or UDim2.fromOffset(3, 3)
+			local targetPos = on and UDim2.fromOffset(25, 3) or UDim2.fromOffset(3, 3)
 			local targetDotColor = on and Color3.new(1, 1, 1) or C.sub
 			local targetPillColor = on and C.acc or C.panel
 			local targetGradTrans = on and 0 or 1
@@ -9998,28 +10053,28 @@ return function(ctx)
 	----------------------------------------------------------------- Input Box (Focus Glow)
 	local function makeInput(parent, title, desc, getv, setv, order)
 		local row = mk("Frame", {
-			Size = UDim2.new(1, 0, 0, 60),
+			Size = UDim2.new(1, 0, 0, 36),
 			BackgroundTransparency = 1,
 			LayoutOrder = order,
 		}, parent)
-		labels(row, title, desc, 170)
+		labels(row, title, desc, 140)
 
 		local boxFrame = mk("Frame", {
-			Size = UDim2.fromOffset(150, 36),
-			Position = UDim2.new(1, -158, 0.5, -18),
+			Size = UDim2.fromOffset(120, 28),
+			Position = UDim2.new(1, -128, 0.5, -14),
 			BackgroundColor3 = C.panel,
 			BorderSizePixel = 0,
 		}, row)
-		corner(boxFrame, 9)
+		corner(boxFrame, 7)
 		local bStroke = stroke(boxFrame, C.strokeSub, 1.2, 0.4)
 
 		local box = mk("TextBox", {
-			Size = UDim2.new(1, -18, 1, 0),
-			Position = UDim2.fromOffset(9, 0),
+			Size = UDim2.new(1, -14, 1, 0),
+			Position = UDim2.fromOffset(7, 0),
 			BackgroundTransparency = 1,
 			Text = tostring(getv()),
 			Font = F.bold,
-			TextSize = 14,
+			TextSize = 12,
 			TextColor3 = C.txt,
 			PlaceholderColor3 = C.sub,
 			ClearTextOnFocus = false,
@@ -10055,21 +10110,21 @@ return function(ctx)
 		mk("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 6) }, row)
 
 		local head = mk("TextButton", {
-			Size = UDim2.new(1, 0, 0, 60),
+			Size = UDim2.new(1, 0, 0, 36),
 			BackgroundTransparency = 1,
 			Text = "",
 			AutoButtonColor = false,
 			LayoutOrder = 1,
 		}, row)
-		labels(head, title, desc, 250)
+		labels(head, title, desc, 200)
 
 		local pillBadge = mk("Frame", {
-			Size = UDim2.fromOffset(230, 40),
-			Position = UDim2.new(1, -236, 0.5, -20),
+			Size = UDim2.fromOffset(180, 28),
+			Position = UDim2.new(1, -186, 0.5, -14),
 			BackgroundColor3 = C.panel,
 			BorderSizePixel = 0,
 		}, head)
-		corner(pillBadge, 10)
+		corner(pillBadge, 7)
 		stroke(pillBadge, C.strokeSub, 1.2, 0.5)
 		pad(pillBadge, 12, 10, 0, 0)
 
@@ -10078,7 +10133,7 @@ return function(ctx)
 			BackgroundTransparency = 1,
 			Text = getv() ~= "" and getv() or "Pilih Opsi",
 			Font = F.bold,
-			TextSize = 14.5,
+			TextSize = 11.5,
 			TextColor3 = C.accSoft,
 			TextXAlignment = Enum.TextXAlignment.Left,
 			TextTruncate = Enum.TextTruncate.AtEnd,
@@ -10151,7 +10206,7 @@ return function(ctx)
 				local isSel   = (display == cur or code == cur)
 
 				local ob = mk("TextButton", {
-					Size = UDim2.new(1, 0, 0, 38),
+					Size = UDim2.new(1, 0, 0, 30),
 					BackgroundColor3 = isSel and C.rowAlt or C.row,
 					Text = (isSel and "   ✓  " or "      ") .. display,
 					TextXAlignment = Enum.TextXAlignment.Left,
@@ -10209,21 +10264,21 @@ return function(ctx)
 		mk("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 6) }, row)
 
 		local head = mk("TextButton", {
-			Size = UDim2.new(1, 0, 0, 60),
+			Size = UDim2.new(1, 0, 0, 36),
 			BackgroundTransparency = 1,
 			Text = "",
 			AutoButtonColor = false,
 			LayoutOrder = 1,
 		}, row)
-		labels(head, title, desc, 250)
+		labels(head, title, desc, 200)
 
 		local pillBadge = mk("Frame", {
-			Size = UDim2.fromOffset(230, 40),
-			Position = UDim2.new(1, -236, 0.5, -20),
+			Size = UDim2.fromOffset(180, 28),
+			Position = UDim2.new(1, -186, 0.5, -14),
 			BackgroundColor3 = C.panel,
 			BorderSizePixel = 0,
 		}, head)
-		corner(pillBadge, 10)
+		corner(pillBadge, 7)
 		stroke(pillBadge, C.strokeSub, 1.2, 0.5)
 		pad(pillBadge, 12, 10, 0, 0)
 
@@ -10232,7 +10287,7 @@ return function(ctx)
 			BackgroundTransparency = 1,
 			Text = "Pilih",
 			Font = F.bold,
-			TextSize = 14.5,
+			TextSize = 11.5,
 			TextColor3 = C.sub,
 			TextXAlignment = Enum.TextXAlignment.Left,
 			TextTruncate = Enum.TextTruncate.AtEnd,
@@ -10318,7 +10373,7 @@ return function(ctx)
 			if built then return end; built = true
 			for _, opt in ipairs(options) do
 				local ob = mk("TextButton", {
-					Size = UDim2.new(1, 0, 0, 38),
+					Size = UDim2.new(1, 0, 0, 30),
 					BackgroundColor3 = C.row,
 					Text = "      " .. opt,
 					TextXAlignment = Enum.TextXAlignment.Left,
@@ -10397,21 +10452,21 @@ return function(ctx)
 		mk("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 6) }, row)
 
 		local head = mk("TextButton", {
-			Size = UDim2.new(1, 0, 0, 60),
+			Size = UDim2.new(1, 0, 0, 36),
 			BackgroundTransparency = 1,
 			Text = "",
 			AutoButtonColor = false,
 			LayoutOrder = 1,
 		}, row)
-		labels(head, title, desc, 250)
+		labels(head, title, desc, 200)
 
 		local pillBadge = mk("Frame", {
-			Size = UDim2.fromOffset(230, 40),
-			Position = UDim2.new(1, -236, 0.5, -20),
+			Size = UDim2.fromOffset(180, 28),
+			Position = UDim2.new(1, -186, 0.5, -14),
 			BackgroundColor3 = C.panel,
 			BorderSizePixel = 0,
 		}, head)
-		corner(pillBadge, 10)
+		corner(pillBadge, 7)
 		stroke(pillBadge, C.strokeSub, 1.2, 0.5)
 		pad(pillBadge, 12, 10, 0, 0)
 
@@ -10420,7 +10475,7 @@ return function(ctx)
 			BackgroundTransparency = 1,
 			Text = "Pilih (semua)",
 			Font = F.bold,
-			TextSize = 14.5,
+			TextSize = 11.5,
 			TextColor3 = C.sub,
 			TextXAlignment = Enum.TextXAlignment.Left,
 			TextTruncate = Enum.TextTruncate.AtEnd,
@@ -10522,12 +10577,12 @@ return function(ctx)
 
 				-- Tombol pet diperbesar ke 40px tinggi & font 14.5px bold (sangat mudah dibaca & di-tap)
 				local ob = mk("TextButton", {
-					Size = UDim2.new(1, 0, 0, 40),
+					Size = UDim2.new(1, 0, 0, 30),
 					BackgroundColor3 = isSel and C.rowAlt or C.row,
 					Text = "     " .. display,
 					TextXAlignment = Enum.TextXAlignment.Left,
 					Font = isSel and F.bold or F.bold,
-					TextSize = 14.5,
+					TextSize = 12,
 					TextColor3 = isSel and C.accSoft or C.txt,
 					AutoButtonColor = false,
 				}, scroll)
@@ -10608,18 +10663,18 @@ return function(ctx)
 		mk("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 0) }, container)
 
 		local head = mk("TextButton", {
-			Size = UDim2.new(1, 0, 0, 56),
+			Size = UDim2.new(1, 0, 0, 38),
 			BackgroundTransparency = 1,
 			Text = "",
 			AutoButtonColor = false,
 			LayoutOrder = 1,
 		}, container)
-		corner(head, 12)
-		pad(head, 14, 14, 0, 0)
+		corner(head, 10)
+		pad(head, 12, 12, 0, 0)
 
 		local accentBar = mk("Frame", {
-			Size = UDim2.new(0, 5, 0, 28),
-			Position = UDim2.new(0, 0, 0.5, -14),
+			Size = UDim2.new(0, 4, 0, 20),
+			Position = UDim2.new(0, 0, 0.5, -10),
 			BackgroundColor3 = C.acc,
 			BorderSizePixel = 0,
 		}, head)
@@ -10627,31 +10682,31 @@ return function(ctx)
 		grad(accentBar, 90, C.acc, C.acc2)
 
 		local titleLabel = mk("TextLabel", {
-			Size = UDim2.new(1, -40, 1, 0),
-			Position = UDim2.fromOffset(14, 0),
+			Size = UDim2.new(1, -30, 1, 0),
+			Position = UDim2.fromOffset(12, 0),
 			BackgroundTransparency = 1,
 			Text = title,
 			Font = F.bold,
-			TextSize = 17,
+			TextSize = 13,
 			TextColor3 = C.txt,
 			TextXAlignment = Enum.TextXAlignment.Left,
 		}, head)
 
 		local chevron = mk("TextLabel", {
-			Size = UDim2.fromOffset(20, 20),
+			Size = UDim2.fromOffset(16, 16),
 			AnchorPoint = Vector2.new(1, 0.5),
 			Position = UDim2.new(1, 0, 0.5, 0),
 			BackgroundTransparency = 1,
 			Text = "▼",
 			Font = F.bold,
-			TextSize = 13,
+			TextSize = 11,
 			TextColor3 = C.acc,
 			Rotation = openByDefault and 180 or 0,
 		}, head)
 
 		local line = mk("Frame", {
-			Size = UDim2.new(1, -28, 0, 1),
-			Position = UDim2.fromOffset(14, 0),
+			Size = UDim2.new(1, -24, 0, 1),
+			Position = UDim2.fromOffset(12, 0),
 			BackgroundColor3 = C.strokeSub,
 			BackgroundTransparency = 0.5,
 			BorderSizePixel = 0,
@@ -10667,7 +10722,7 @@ return function(ctx)
 			Visible = openByDefault or false,
 			LayoutOrder = 3,
 		}, container)
-		pad(body, 14, 14, 10, 14)
+		pad(body, 10, 10, 6, 10)
 		mk("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder }, body)
 
 		head.MouseEnter:Connect(function()
@@ -10696,22 +10751,22 @@ return function(ctx)
 		local pages, tabBtns  = ctx.ui.pages, ctx.ui.tabBtns
 
 		local btn = mk("TextButton", {
-			Size = UDim2.new(1, 0, 0, 44),
+			Size = UDim2.new(1, 0, 0, 36),
 			BackgroundColor3 = C.row,
 			BackgroundTransparency = 1,
-			Text = "    " .. (icon or "✦") .. "   " .. name,
+			Text = "   " .. (icon or "✦") .. "  " .. name,
 			Font = F.bold,
-			TextSize = 15,
+			TextSize = 12.5,
 			TextColor3 = C.sub,
 			LayoutOrder = order,
 			AutoButtonColor = false,
 			TextXAlignment = Enum.TextXAlignment.Left,
 		}, tabButtonsFrame)
-		corner(btn, 10)
+		corner(btn, 8)
 
 		local line = mk("Frame", {
-			Size = UDim2.new(0, 4, 0, 26),
-			Position = UDim2.new(0, 4, 0.5, -13),
+			Size = UDim2.new(0, 3, 0, 20),
+			Position = UDim2.new(0, 3, 0.5, -10),
 			BackgroundColor3 = C.acc,
 			Visible = false,
 			BorderSizePixel = 0,
@@ -10754,34 +10809,34 @@ return function(ctx)
 			Size = UDim2.new(1, 0, 1, 0),
 			BackgroundTransparency = 1,
 			Visible = false,
-			ScrollBarThickness = 4,
+			ScrollBarThickness = 3,
 			CanvasSize = UDim2.new(),
 			AutomaticCanvasSize = "Y",
 			ScrollBarImageColor3 = C.acc,
 		}, content)
-		pad(pg, 4, 10, 2, 10)
-		mk("UIListLayout", { Padding = UDim.new(0, 10), SortOrder = Enum.SortOrder.LayoutOrder }, pg)
+		pad(pg, 4, 8, 2, 8)
+		mk("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }, pg)
 		pages[name] = pg
 
 		local headerFrame = mk("Frame", {
-			Size = UDim2.new(1, 0, 0, 46),
+			Size = UDim2.new(1, 0, 0, 32),
 			BackgroundTransparency = 1,
 			LayoutOrder = 0,
 		}, pg)
 
 		local tTitle = mk("TextLabel", {
-			Size = UDim2.new(1, 0, 0, 34),
+			Size = UDim2.new(1, 0, 0, 24),
 			BackgroundTransparency = 1,
 			Text = (icon or "✦") .. "  " .. titleText,
 			Font = F.bold,
-			TextSize = 26,
+			TextSize = 18,
 			TextColor3 = C.txt,
 			TextXAlignment = Enum.TextXAlignment.Left,
 		}, headerFrame)
 
 		local underline = mk("Frame", {
-			Size = UDim2.new(0, 65, 0, 3),
-			Position = UDim2.new(0, 0, 1, -4),
+			Size = UDim2.new(0, 45, 0, 2),
+			Position = UDim2.new(0, 0, 1, -3),
 			BackgroundColor3 = C.acc,
 			BorderSizePixel = 0,
 		}, headerFrame)
@@ -10798,26 +10853,26 @@ return function(ctx)
 		return pg
 	end
 
-	----------------------------------------------------------------- Gradient Action Button
+	----------------------------------------------------------------- Gradient Action Button (Compact)
 	local function makeButton(parent, title, desc, onClick, order)
 		local row = mk("Frame", {
-			Size = UDim2.new(1, 0, 0, 60),
+			Size = UDim2.new(1, 0, 0, 36),
 			BackgroundTransparency = 1,
 			LayoutOrder = order,
 		}, parent)
-		labels(row, title, desc, 160)
+		labels(row, title, desc, 130)
 
 		local btn = mk("TextButton", {
-			Size = UDim2.fromOffset(142, 38),
-			Position = UDim2.new(1, -150, 0.5, -19),
+			Size = UDim2.fromOffset(116, 28),
+			Position = UDim2.new(1, -122, 0.5, -14),
 			BackgroundColor3 = C.acc,
 			Text = "Execute ✦",
 			Font = F.bold,
-			TextSize = 14,
+			TextSize = 12,
 			TextColor3 = Color3.new(1, 1, 1),
 			AutoButtonColor = false,
 		}, row)
-		corner(btn, 10)
+		corner(btn, 7)
 		grad(btn, 0, C.acc, C.acc2)
 		stroke(btn, C.accSoft, 1.2, 0.3)
 
@@ -10829,14 +10884,211 @@ return function(ctx)
 		end)
 
 		btn.MouseButton1Click:Connect(function()
-			TS:Create(btn, TweenInfo.new(0.08), { Size = UDim2.fromOffset(136, 35) }):Play()
+			TS:Create(btn, TweenInfo.new(0.08), { Size = UDim2.fromOffset(110, 26) }):Play()
 			task.delay(0.08, function()
-				TS:Create(btn, TweenInfo.new(0.12), { Size = UDim2.fromOffset(142, 38) }):Play()
+				TS:Create(btn, TweenInfo.new(0.12), { Size = UDim2.fromOffset(116, 28) }):Play()
 			end)
 			if onClick then onClick() end
 		end)
 
 		return btn
+	end
+
+	----------------------------------------------------------------- Horizontal Sub-Tabs (Menyamping)
+	local function makeSubTabs(parent, tabList, defaultId, order)
+		local wrapper = mk("Frame", {
+			Size = UDim2.new(1, 0, 0, 0),
+			AutomaticSize = Enum.AutomaticSize.Y,
+			BackgroundTransparency = 1,
+			LayoutOrder = order or 1,
+		}, parent)
+		mk("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 8) }, wrapper)
+
+		-- Bar tombol sub-tab horizontal di atas (bisa scroll X jika banyak)
+		local barFrame = mk("ScrollingFrame", {
+			Size = UDim2.new(1, 0, 0, 30),
+			BackgroundTransparency = 1,
+			ScrollBarThickness = 0,
+			CanvasSize = UDim2.new(),
+			AutomaticCanvasSize = Enum.AutomaticSize.X,
+			ScrollingDirection = Enum.ScrollingDirection.X,
+			BorderSizePixel = 0,
+			LayoutOrder = 1,
+		}, wrapper)
+		mk("UIListLayout", {
+			FillDirection = Enum.FillDirection.Horizontal,
+			SortOrder = Enum.SortOrder.LayoutOrder,
+			Padding = UDim.new(0, 6),
+			VerticalAlignment = Enum.VerticalAlignment.Center,
+		}, barFrame)
+
+		-- Content area sub-tab
+		local subContent = mk("Frame", {
+			Size = UDim2.new(1, 0, 0, 0),
+			AutomaticSize = Enum.AutomaticSize.Y,
+			BackgroundTransparency = 1,
+			LayoutOrder = 2,
+		}, wrapper)
+		mk("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 0) }, subContent)
+
+		local tabBtns = {}
+		local pages = {}
+		local currentTab = defaultId or (tabList[1] and (tabList[1].id or tabList[1]))
+
+		local function selectTab(id)
+			currentTab = id
+			for tid, p in pairs(pages) do
+				p.Visible = (tid == id)
+			end
+			for tid, btnData in pairs(tabBtns) do
+				local isSel = (tid == id)
+				TS:Create(btnData.btn, TweenInfo.new(0.18), {
+					BackgroundColor3 = isSel and C.rowAlt or C.row,
+					TextColor3 = isSel and C.txt or C.sub,
+				}):Play()
+				btnData.stroke.Color = isSel and C.acc or C.strokeSub
+				btnData.stroke.Transparency = isSel and 0.1 or 0.6
+				btnData.stroke.Thickness = isSel and 1.4 or 1
+			end
+		end
+
+		for i, item in ipairs(tabList) do
+			local id = type(item) == "table" and item.id or item
+			local title = type(item) == "table" and item.name or item
+			local isDefault = (id == currentTab)
+
+			local textLen = #title
+			local btnW = math.clamp(textLen * 7.5 + 24, 60, 160)
+
+			local btn = mk("TextButton", {
+				Size = UDim2.fromOffset(btnW, 26),
+				BackgroundColor3 = isDefault and C.rowAlt or C.row,
+				Text = title,
+				Font = F.bold,
+				TextSize = 11.5,
+				TextColor3 = isDefault and C.txt or C.sub,
+				LayoutOrder = i,
+				AutoButtonColor = false,
+			}, barFrame)
+			corner(btn, 13)
+			local s = stroke(btn, isDefault and C.acc or C.strokeSub, isDefault and 1.4 or 1, isDefault and 0.1 or 0.6)
+
+			btn.MouseEnter:Connect(function()
+				if currentTab ~= id then
+					TS:Create(btn, TweenInfo.new(0.12), { BackgroundColor3 = C.rowHover, TextColor3 = C.txt }):Play()
+				end
+			end)
+			btn.MouseLeave:Connect(function()
+				if currentTab ~= id then
+					TS:Create(btn, TweenInfo.new(0.12), { BackgroundColor3 = C.row, TextColor3 = C.sub }):Play()
+				end
+			end)
+			btn.MouseButton1Click:Connect(function()
+				selectTab(id)
+			end)
+
+			tabBtns[id] = { btn = btn, stroke = s }
+
+			local subPg = mk("Frame", {
+				Size = UDim2.new(1, 0, 0, 0),
+				AutomaticSize = Enum.AutomaticSize.Y,
+				BackgroundTransparency = 1,
+				Visible = isDefault,
+				LayoutOrder = i,
+			}, subContent)
+			mk("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, subPg)
+
+			pages[id] = subPg
+		end
+
+		return {
+			wrapper = wrapper,
+			pages = pages,
+			selectTab = selectTab,
+		}
+	end
+
+	----------------------------------------------------------------- Start / Stop Control Bar (Bawah)
+	local function makeStartStopBar(parent, getRunning, onStart, onStop, order)
+		local bar = mk("Frame", {
+			Size = UDim2.new(1, 0, 0, 34),
+			BackgroundTransparency = 1,
+			LayoutOrder = order or 999,
+		}, parent)
+		pad(bar, 2, 2, 2, 2)
+		mk("UIListLayout", {
+			FillDirection = Enum.FillDirection.Horizontal,
+			SortOrder = Enum.SortOrder.LayoutOrder,
+			Padding = UDim.new(0, 10),
+			VerticalAlignment = Enum.VerticalAlignment.Center,
+		}, bar)
+
+		local startBtn = mk("TextButton", {
+			Size = UDim2.fromOffset(88, 28),
+			BackgroundColor3 = C.row,
+			Text = "⚡ START",
+			Font = F.bold,
+			TextSize = 12,
+			TextColor3 = C.txt,
+			AutoButtonColor = false,
+			LayoutOrder = 1,
+		}, bar)
+		corner(startBtn, 14)
+		local startStroke = stroke(startBtn, C.strokeSub, 1.2, 0.4)
+
+		local stopBtn = mk("TextButton", {
+			Size = UDim2.fromOffset(78, 28),
+			BackgroundColor3 = C.row,
+			Text = "STOP",
+			Font = F.bold,
+			TextSize = 12,
+			TextColor3 = C.sub,
+			AutoButtonColor = false,
+			LayoutOrder = 2,
+		}, bar)
+		corner(stopBtn, 14)
+		local stopStroke = stroke(stopBtn, C.strokeSub, 1.2, 0.4)
+
+		local function refresh()
+			local running = getRunning()
+			if running then
+				startBtn.BackgroundColor3 = C.rowAlt
+				startBtn.TextColor3 = C.green
+				startStroke.Color = C.green
+				startStroke.Transparency = 0.1
+				startStroke.Thickness = 1.4
+
+				stopBtn.BackgroundColor3 = C.row
+				stopBtn.TextColor3 = C.sub
+				stopStroke.Color = C.strokeSub
+				stopStroke.Transparency = 0.6
+				stopStroke.Thickness = 1
+			else
+				startBtn.BackgroundColor3 = C.row
+				startBtn.TextColor3 = C.sub
+				startStroke.Color = C.strokeSub
+				startStroke.Transparency = 0.6
+				startStroke.Thickness = 1
+
+				stopBtn.BackgroundColor3 = C.rowAlt
+				stopBtn.TextColor3 = C.red
+				stopStroke.Color = C.red
+				stopStroke.Transparency = 0.1
+				stopStroke.Thickness = 1.4
+			end
+		end
+
+		startBtn.MouseButton1Click:Connect(function()
+			if onStart then onStart() end
+			refresh()
+		end)
+		stopBtn.MouseButton1Click:Connect(function()
+			if onStop then onStop() end
+			refresh()
+		end)
+
+		refresh()
+		return refresh
 	end
 
 	ctx.makeToggle          = makeToggle
@@ -10847,6 +11099,8 @@ return function(ctx)
 	ctx.makeAccordion       = makeAccordion
 	ctx.makePage            = makePage
 	ctx.makeButton          = makeButton
+	ctx.makeSubTabs         = makeSubTabs
+	ctx.makeStartStopBar    = makeStartStopBar
 	ctx.divider             = divider
 end
 ]=],
@@ -10881,6 +11135,8 @@ return function(ctx)
 	local makeMultiDropdown = ctx.makeMultiDropdown
 	local makeMultiDropdownDyn = ctx.makeMultiDropdownDyn
 	local makeButton = ctx.makeButton
+	local makeSubTabs = ctx.makeSubTabs
+	local makeStartStopBar = ctx.makeStartStopBar
 
 	-- sidebar tabs (urut sesuai referensi)
 	local TABS = {
@@ -11084,10 +11340,19 @@ return function(ctx)
 		local FLOW_OPTS = { { name = "none", display = "None (kosong)" }, { name = "elephant", display = "Elephant" }, { name = "mutation", display = "Mutation" }, { name = "leveling", display = "Leveling" }, { name = "leveling_p1", display = "Leveling Phase 1" }, { name = "leveling_p2", display = "Leveling Phase 2" } }
 		local function capStep(s) for _, o in ipairs(FLOW_OPTS) do if o.name == s then return o.display end end return "Select" end
 
-		-- Growth Control (status + target + enable)
-		local gCtrl = makeAccordion(growthPage, "Growth Control", 1, true)
-		local gLbl = mk("TextLabel", { Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, Text = "Loading...", Font = F.reg, TextSize = 13, TextColor3 = C.txt, TextXAlignment = Enum.TextXAlignment.Left, TextWrapped = true, LineHeight = 1.35, RichText = true, LayoutOrder = 0 }, gCtrl)
-		mk("Frame", { Size = UDim2.new(1, 0, 0, 12), BackgroundTransparency = 1, LayoutOrder = 1 }, gCtrl)
+		local sub = makeSubTabs(growthPage, {
+			{ id = "status",   name = "⚙ Status" },
+			{ id = "elephant", name = "Elephant" },
+			{ id = "mutation", name = "Mutation" },
+			{ id = "leveling", name = "Leveling" },
+			{ id = "flow",     name = "Flow Config" },
+		}, "status", 1)
+
+		-- 1) STATUS & MAIN CONTROL
+		local pStatus = sub.pages["status"]
+		local gCtrl = makeAccordion(pStatus, "Growth Control & Status", 1, true)
+		local gLbl = mk("TextLabel", { Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, Text = "Loading...", Font = F.reg, TextSize = 12, TextColor3 = C.txt, TextXAlignment = Enum.TextXAlignment.Left, TextWrapped = true, LineHeight = 1.3, RichText = true, LayoutOrder = 0 }, gCtrl)
+		mk("Frame", { Size = UDim2.new(1, 0, 0, 8), BackgroundTransparency = 1, LayoutOrder = 1 }, gCtrl)
 		task.spawn(function()
 			while ctx.alive() do
 				if not onScreen(growthPage) then task.wait(1) continue end
@@ -11114,12 +11379,18 @@ return function(ctx)
 		end)
 		makeMultiDropdown(gCtrl, "Growth Target Pet Types (Default)", "Target default; dipakai step yg target per-method-nya kosong",
 			reg.PET_OPTIONS, CFG.growthPetTypes, function() persist() end, 2)
+		local refreshGrowthBar
 		makeToggle(gCtrl, "Enable Growth", "Jalankan pipeline (batch per-step sesuai flow)",
 			function() return CFG.growthEnabled end,
-			function(v) CFG.growthEnabled = v; persist(); if v then ctx.startGrowth() else ctx.stopGrowth() end end, 3)
+			function(v)
+				CFG.growthEnabled = v; persist()
+				if v then ctx.startGrowth() else ctx.stopGrowth() end
+				if refreshGrowthBar then refreshGrowthBar() end
+			end, 3)
 
-		-- Configuration Auto Elephant
-		local gEle = makeAccordion(growthPage, "Configuration Auto Elephant", 2, true)
+		-- 2) ELEPHANT STEP
+		local pEle = sub.pages["elephant"]
+		local gEle = makeAccordion(pEle, "Configuration Auto Elephant", 1, true)
 		makeMultiDropdown(gEle, "Elephant Target Pet Types", "Target khusus step Elephant (kosong = pakai Default)",
 			reg.PET_OPTIONS, CFG.growthPetTypesElephant, function() persist() end, 0)
 		makeMultiDropdownDyn(gEle, "Elephant Pet Team", "Team aura buat grow weight",
@@ -11129,8 +11400,9 @@ return function(ctx)
 		makeInput(gEle, "Max Target Pets", "Max pet target di garden (step Elephant)",
 			function() return tostring(CFG.growthElephantMax) end, function(t) CFG.growthElephantMax = tonumber(t) or 2; persist() end, 3)
 
-		-- Configuration Auto Mutation
-		local gMut = makeAccordion(growthPage, "Configuration Auto Mutation", 3, true)
+		-- 3) MUTATION STEP
+		local pMut = sub.pages["mutation"]
+		local gMut = makeAccordion(pMut, "Configuration Auto Mutation", 1, true)
 		makeMultiDropdown(gMut, "Mutation Target Pet Types", "Target khusus step Mutation (kosong = pakai Default)",
 			reg.PET_OPTIONS, CFG.growthPetTypesMutation, function() persist() end, 0)
 		makeMultiDropdownDyn(gMut, "Mutation Pet Team", "Team aura pemberi mutasi",
@@ -11140,8 +11412,9 @@ return function(ctx)
 		makeInput(gMut, "Max Target Pets", "Max pet target di garden (step Mutation)",
 			function() return tostring(CFG.growthMutationMax) end, function(t) CFG.growthMutationMax = tonumber(t) or 2; persist() end, 3)
 
-		-- Configuration Auto Leveling (2 phase)
-		local gLev = makeAccordion(growthPage, "Configuration Auto Leveling", 4, true)
+		-- 4) LEVELING STEP
+		local pLev = sub.pages["leveling"]
+		local gLev = makeAccordion(pLev, "Configuration Auto Leveling", 1, true)
 		makeMultiDropdown(gLev, "Leveling Target Pet Types", "Target khusus step Leveling (kosong = pakai Default)",
 			reg.PET_OPTIONS, CFG.growthPetTypesLeveling, function() persist() end, 0)
 		makeMultiDropdownDyn(gLev, "Leveling Phase 1 Pet Team", "Team for Phase 1 (Age 1 to Phase 1 Target)",
@@ -11157,8 +11430,9 @@ return function(ctx)
 		makeInput(gLev, "Leveling Phase 2 Max Pets", "Max target pets in garden during Phase 2",
 			function() return tostring(CFG.growthLevP2Max) end, function(t) CFG.growthLevP2Max = tonumber(t) or 1; persist() end, 6)
 
-		-- Configuration Flow (Step 1/2/3)
-		local gFlow = makeAccordion(growthPage, "Configuration Flow", 5, true)
+		-- 5) FLOW CONFIG
+		local pFlow = sub.pages["flow"]
+		local gFlow = makeAccordion(pFlow, "Configuration Flow", 1, true)
 		local stepDesc = { "First step in growth flow", "Second step in growth flow", "Third step in growth flow", "Fourth step in growth flow", "Fifth step in growth flow", "Sixth step in growth flow", }
 		for i = 1, 6 do
 			makeSingleDropdown(gFlow, "Step " .. i, stepDesc[i],
@@ -11166,16 +11440,155 @@ return function(ctx)
 				function() return capStep((CFG.growthFlow or {})[i]) end,
 				function(code) CFG.growthFlow = CFG.growthFlow or {}; CFG.growthFlow[i] = code; persist() end, i)
 		end
+
+		-- Start / Stop Bar
+		refreshGrowthBar = makeStartStopBar(growthPage,
+			function() return CFG.growthEnabled end,
+			function()
+				CFG.growthEnabled = true
+				persist()
+				ctx.startGrowth()
+			end,
+			function()
+				CFG.growthEnabled = false
+				persist()
+				ctx.stopGrowth()
+			end, 999)
 	end
 
 	------------------------------------------------------------------ HATCH (auto hatch + auto sell)
 	do
 		local hatchPage = pageRef["Hatch"]
 
-		-- Status & Control
-		local hCtrl = makeAccordion(hatchPage, "Status & Control", 1, false)
-		local hLbl = mk("TextLabel", { Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, Text = "Loading...", Font = F.reg, TextSize = 13, TextColor3 = C.txt, TextXAlignment = Enum.TextXAlignment.Left, TextWrapped = true, LineHeight = 1.35, RichText = true, LayoutOrder = 0 }, hCtrl)
-		mk("Frame", { Size = UDim2.new(1, 0, 0, 12), BackgroundTransparency = 1, LayoutOrder = 1 }, hCtrl)
+		local sub = makeSubTabs(hatchPage, {
+			{ id = "core",   name = "Main Team" },
+			{ id = "bronto", name = "Bronto Team" },
+			{ id = "hatch",  name = "Hatch Team" },
+			{ id = "sell",   name = "Sell Team" },
+			{ id = "config", name = "Config" },
+			{ id = "status", name = "⚙ Status" },
+		}, "core", 1)
+
+		-- 1) MAIN / CORE TEAM SUB-TAB
+		local pCore = sub.pages["core"]
+		local cAcc = makeAccordion(pCore, "Main Team Configuration", 1, true)
+		makeMultiDropdownDyn(cAcc, "Core Team (Main)", "Percepat egg (incubation speed)",
+			function() return ctx.inventoryPetOptions(CFG.hatchCoreTeam) end, CFG.hatchCoreTeam, function() persist() end, 1)
+
+		-- 2) BRONTO TEAM SUB-TAB
+		local pBronto = sub.pages["bronto"]
+		local bAcc = makeAccordion(pBronto, "Bronto Team Configuration", 1, true)
+		makeMultiDropdownDyn(bAcc, "Bronto Team", "+30% berat pet pas hatch (Brontosaurus)",
+			function() return ctx.inventoryPetOptions(CFG.hatchBrontoTeam) end, CFG.hatchBrontoTeam, function() persist() end, 1)
+		makeInput(bAcc, "Bronto Team Delay (sec)", "Tunggu abis swap team sebelum hatch bronto",
+			function() return tostring(CFG.brontoTeamDelay or 5) end, function(t) CFG.brontoTeamDelay = tonumber(t) or 5; persist() end, 2)
+
+		-- 3) HATCH TEAM SUB-TAB
+		local pHatch = sub.pages["hatch"]
+		local hAcc = makeAccordion(pHatch, "Hatch Team Configuration", 1, true)
+		makeMultiDropdownDyn(hAcc, "Hatch Team", "Hatch egg ready (Koi = balikin egg)",
+			function() return ctx.inventoryPetOptions(CFG.hatchHatchTeam) end, CFG.hatchHatchTeam, function() persist() end, 1)
+		makeInput(hAcc, "Hatch Team Delay (sec)", "Tunggu abis swap team sebelum hatch",
+			function() return tostring(CFG.hatchTeamDelay or 5) end, function(t) CFG.hatchTeamDelay = tonumber(t) or 5; persist() end, 2)
+
+		-- 4) SELL TEAM SUB-TAB
+		local pSell = sub.pages["sell"]
+		local sAcc = makeAccordion(pSell, "Sell Team Configuration", 1, true)
+		makeMultiDropdownDyn(sAcc, "Sell Team", "Jual + balikin pet jadi egg (Seal the Deal)",
+			function() return ctx.inventoryPetOptions(CFG.hatchSellTeam) end, CFG.hatchSellTeam, function() persist() end, 1)
+		makeInput(sAcc, "Sell Team Delay (sec)", "Tunggu abis swap team sebelum jual",
+			function() return tostring(CFG.sellTeamDelay) end, function(t) CFG.sellTeamDelay = tonumber(t) or 5; persist() end, 2)
+		makeToggle(sAcc, "Auto Boost Before Sell", "Boost pet aktif pakai toy sebelum jual",
+			function() return CFG.autoBoostBeforeSell end, function(v) CFG.autoBoostBeforeSell = v; persist() end, 3)
+
+		-- 5) CONFIG SUB-TAB (Egg Config + Bronto Config + Sell Config)
+		local pCfg = sub.pages["config"]
+
+		-- Egg Configuration
+		local hEgg = makeAccordion(pCfg, "Egg Configuration", 1, true)
+		makeSingleDropdown(hEgg, "Egg to Hatch", "Egg dari backpack yg di-place & di-hatch (+ jumlah)",
+			function() return ctx.getEggBackpackOptions() end,
+			function() return tostring(CFG.hatchEggName or "") end,
+			function(code) CFG.hatchEggName = code; persist() end, 1)
+		makeSingleDropdown(hEgg, "Placement Pattern", "Pola taro egg: Grid (rapih) / Random (sebar acak)",
+			function() return { "Grid", "Random" } end,
+			function() return CFG.hatchPlacePattern or "Grid" end,
+			function(code) CFG.hatchPlacePattern = code; persist() end, 2)
+		makeInput(hEgg, "Max Placed", "Maksimal egg ke-place di garden",
+			function() return tostring(CFG.hatchMaxPlaced) end, function(t) CFG.hatchMaxPlaced = tonumber(t) or 8; persist() end, 3)
+		makeToggle(hEgg, "Auto Rejoin on Egg Minus", "Auto rejoin server jika egg minus mencapai batas",
+			function() return CFG.hatchRejoinMinusEnabled end,
+			function(v)
+				CFG.hatchRejoinMinusEnabled = v; persist()
+				if v and ctx.startEggMinusWatcher then
+					ctx.startEggMinusWatcher()
+				elseif not v and not CFG.hatchRejoinPlusEnabled and ctx.stopEggMinusWatcher then
+					ctx.stopEggMinusWatcher()
+				end
+			end, 4)
+		makeInput(hEgg, "Egg Minus Threshold", "Batas jumlah minus untuk trigger rejoin (misal: 20)",
+			function() return tostring(CFG.hatchRejoinMinusThreshold or 20) end,
+			function(t) CFG.hatchRejoinMinusThreshold = tonumber(t) or 20; persist() end, 5)
+		makeToggle(hEgg, "Auto Rejoin on Egg Plus", "Auto rejoin server jika egg bertambah mencapai batas",
+			function() return CFG.hatchRejoinPlusEnabled end,
+			function(v)
+				CFG.hatchRejoinPlusEnabled = v; persist()
+				if v and ctx.startEggMinusWatcher then
+					ctx.startEggMinusWatcher()
+				elseif not v and not CFG.hatchRejoinMinusEnabled and ctx.stopEggMinusWatcher then
+					ctx.stopEggMinusWatcher()
+				end
+			end, 6)
+		makeInput(hEgg, "Egg Plus Threshold", "Batas jumlah penambahan untuk trigger rejoin (misal: 20)",
+			function() return tostring(CFG.hatchRejoinPlusThreshold or 20) end,
+			function(t) CFG.hatchRejoinPlusThreshold = tonumber(t) or 20; persist() end, 7)
+
+		-- Bronto Configuration
+		local hBr = makeAccordion(pCfg, "Bronto Configuration", 2, false)
+		makeMultiDropdown(hBr, "Special Pets", "Pet yg WAJIB di-hatch pakai Bronto team",
+			reg.PET_EGG_ONLY, CFG.brontoSpecialPets, function() persist() end, 1)
+		makeInput(hBr, "Special Pets Weight Filter", "Special cuma kalau weight > ini (0 = ga difilter)",
+			function() return tostring(CFG.brontoSpecialWeight) end, function(t) CFG.brontoSpecialWeight = tonumber(t) or 0; persist() end, 2)
+		makeMultiDropdown(hBr, "Universal Weight Pet Types", "Tipe pet buat aturan universal (kosong = semua). Tampil dgn tipe egg-nya.",
+			reg.PET_EGG_ONLY, CFG.brontoUniversalTypes, function() persist() end, 3)
+		makeInput(hBr, "Universal Weight Threshold", "Pakai Bronto team kalau weight > ini (0 = off)",
+			function() return tostring(CFG.brontoUniversalWeight) end, function(t) CFG.brontoUniversalWeight = tonumber(t) or 0; persist() end, 4)
+		makeToggle(hBr, "Don't Hatch Special Pets", "Skip special pet sama sekali (jangan di-hatch)",
+			function() return CFG.brontoSkipSpecial end, function(v) CFG.brontoSkipSpecial = v; persist() end, 5)
+
+		-- Sell Configuration
+		local hSell = makeAccordion(pCfg, "Sell Configuration", 3, false)
+		makeMultiDropdown(hSell, "Pets to Sell", "Tipe pet yg DIJUAL (sisanya difavoritin biar aman)",
+			reg.PET_EGG_OPTIONS, CFG.sellPetTypes, function() persist() end, 1)
+		makeInput(hSell, "Sell Weight Threshold", "Jual kalau base weight < ini",
+			function() return tostring(CFG.sellWeightThreshold) end, function(t) CFG.sellWeightThreshold = tonumber(t) or 5; persist() end, 2)
+		makeInput(hSell, "Sell Age Threshold", "Jual kalau age < ini",
+			function() return tostring(CFG.sellAgeThreshold) end, function(t) CFG.sellAgeThreshold = tonumber(t) or 3; persist() end, 3)
+		makeMultiDropdown(hSell, "Special Pets to Sell", "Pet spesial (jual by weight)",
+			reg.PET_EGG_ONLY, CFG.sellSpecialTypes, function() persist() end, 4)
+		makeInput(hSell, "Special Pet Weight Threshold", "Jual pet spesial dgn weight < ini (0=off)",
+			function() return tostring(CFG.sellSpecialWeight) end, function(t) CFG.sellSpecialWeight = tonumber(t) or 10; persist() end, 5)
+		local SELLMODE = { { name = "Cycle", display = "Cycle" }, { name = "Backpack", display = "Backpack" } }
+		makeSingleDropdown(hSell, "Sell Mode", "Kapan trigger jual",
+			function() return SELLMODE end, function() return CFG.sellMode or "Cycle" end,
+			function(code) CFG.sellMode = code; persist() end, 6)
+		local SELLSTYLE = { { name = "All at Once", display = "All at Once" }, { name = "One by One", display = "One by One" } }
+		makeSingleDropdown(hSell, "Sell Style", "All at Once = jual semua matched sekaligus",
+			function() return SELLSTYLE end, function() return CFG.sellStyle or "All at Once" end,
+			function(code) CFG.sellStyle = code; persist() end, 7)
+		makeInput(hSell, "Sell Every N Cycles", "Jual tiap N cycle hatch",
+			function() return tostring(CFG.sellEveryNCycles) end, function(t) CFG.sellEveryNCycles = tonumber(t) or 1; persist() end, 8)
+		makeInput(hSell, "Sell When Pets Reach", "Jual kalau backpack pet >= ini",
+			function() return tostring(CFG.sellWhenReach) end, function(t) CFG.sellWhenReach = tonumber(t) or 100; persist() end, 9)
+		makeButton(hSell, "Sell Now (manual)", "Jalankan sell sekali sekarang",
+			function() task.spawn(function() pcall(ctx.hatchDoSell) end) end, 10)
+
+		-- 6) STATUS SUB-TAB
+		local pStatus = sub.pages["status"]
+		local hCtrl = makeAccordion(pStatus, "Status & Controls", 1, true)
+		local hLbl = mk("TextLabel", { Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, Text = "Loading...", Font = F.reg, TextSize = 12, TextColor3 = C.txt, TextXAlignment = Enum.TextXAlignment.Left, TextWrapped = true, LineHeight = 1.3, RichText = true, LayoutOrder = 0 }, hCtrl)
+		mk("Frame", { Size = UDim2.new(1, 0, 0, 8), BackgroundTransparency = 1, LayoutOrder = 1 }, hCtrl)
+
 		task.spawn(function()
 			while ctx.alive() do
 				if not onScreen(hatchPage) then task.wait(1) continue end
@@ -11206,147 +11619,86 @@ return function(ctx)
 				task.wait(1.0)
 			end
 		end)
-		ctx.ui.rHatchToggle = makeToggle(hCtrl, "Auto Hatch", "Start/Stop auto hatching (equip Hatch team + hatch egg ready)",
+
+		local refreshStartStop
+		ctx.ui.rHatchToggle = makeToggle(hCtrl, "Auto Hatch", "Start/Stop auto hatching",
 			function() return CFG.hatchEnabled end,
-			function(v) CFG.hatchEnabled = v; persist(); if v then ctx.startHatch() else ctx.stopHatch() end end, 2)
-		makeToggle(hCtrl, "Auto Sell", "Auto jual pet pas backpack penuh (filter + favorite proteksi)",
+			function(v)
+				CFG.hatchEnabled = v
+				persist()
+				if v then ctx.startHatch() else ctx.stopHatch() end
+				if refreshStartStop then refreshStartStop() end
+			end, 2)
+		makeToggle(hCtrl, "Auto Sell", "Auto jual pet pas backpack penuh",
 			function() return CFG.autoSellEnabled end, function(v) CFG.autoSellEnabled = v; persist() end, 3)
 
-		-- Teams
-		local hTeam = makeAccordion(hatchPage, "Teams (Core / Hatch / Bronto / Sell)", 2, true)
-		makeMultiDropdownDyn(hTeam, "Core Team", "Percepat egg (incubation speed)",
-			function() return ctx.inventoryPetOptions(CFG.hatchCoreTeam) end, CFG.hatchCoreTeam, function() persist() end, 1)
-		makeMultiDropdownDyn(hTeam, "Hatch Team", "Hatch egg ready (Koi = balikin egg)",
-			function() return ctx.inventoryPetOptions(CFG.hatchHatchTeam) end, CFG.hatchHatchTeam, function() persist() end, 2)
-		makeMultiDropdownDyn(hTeam, "Bronto Team", "+30% berat pet pas hatch (Brontosaurus)",
-			function() return ctx.inventoryPetOptions(CFG.hatchBrontoTeam) end, CFG.hatchBrontoTeam, function() persist() end, 3)
-		makeMultiDropdownDyn(hTeam, "Sell Team", "Jual + balikin pet jadi egg (Seal the Deal)",
-			function() return ctx.inventoryPetOptions(CFG.hatchSellTeam) end, CFG.hatchSellTeam, function() persist() end, 4)
-
-		-- Egg Configuration
-		local hEgg = makeAccordion(hatchPage, "Egg Configuration", 3, true)
-		makeSingleDropdown(hEgg, "Egg to Hatch", "Egg dari backpack yg di-place & di-hatch (+ jumlah)",
-			function() return ctx.getEggBackpackOptions() end,
-			function() return tostring(CFG.hatchEggName or "") end,
-			function(code) CFG.hatchEggName = code; persist() end, 1)
-		makeSingleDropdown(hEgg, "Placement Pattern", "Pola taro egg: Grid (rapih) / Random (sebar acak)",
-			function() return { "Grid", "Random" } end,
-			function() return CFG.hatchPlacePattern or "Grid" end,
-			function(code) CFG.hatchPlacePattern = code; persist() end, 2)
-		makeInput(hEgg, "Max Placed", "Maksimal egg ke-place di garden",
-			function() return tostring(CFG.hatchMaxPlaced) end, function(t) CFG.hatchMaxPlaced = tonumber(t) or 8; persist() end, 3)
-		makeInput(hEgg, "Hatch Team Delay (sec)", "Tunggu abis swap team sebelum hatch",
-			function() return tostring(CFG.hatchTeamDelay or 5) end, function(t) CFG.hatchTeamDelay = tonumber(t) or 5; persist() end, 4)
-		makeToggle(hEgg, "Auto Rejoin on Egg Minus", "Auto rejoin server jika egg minus mencapai batas",
-			function() return CFG.hatchRejoinMinusEnabled end,
-			function(v)
-				CFG.hatchRejoinMinusEnabled = v; persist()
-				if v and ctx.startEggMinusWatcher then
-					ctx.startEggMinusWatcher()
-				elseif not v and not CFG.hatchRejoinPlusEnabled and ctx.stopEggMinusWatcher then
-					ctx.stopEggMinusWatcher()
-				end
-			end, 5)
-		makeInput(hEgg, "Egg Minus Threshold", "Batas jumlah minus untuk trigger rejoin (misal: 20)",
-			function() return tostring(CFG.hatchRejoinMinusThreshold or 20) end,
-			function(t) CFG.hatchRejoinMinusThreshold = tonumber(t) or 20; persist() end, 6)
-
-		makeToggle(hEgg, "Auto Rejoin on Egg Plus", "Auto rejoin server jika egg bertambah mencapai batas",
-			function() return CFG.hatchRejoinPlusEnabled end,
-			function(v)
-				CFG.hatchRejoinPlusEnabled = v; persist()
-				if v and ctx.startEggMinusWatcher then
-					ctx.startEggMinusWatcher()
-				elseif not v and not CFG.hatchRejoinMinusEnabled and ctx.stopEggMinusWatcher then
-					ctx.stopEggMinusWatcher()
-				end
-			end, 7)
-		makeInput(hEgg, "Egg Plus Threshold", "Batas jumlah penambahan untuk trigger rejoin (misal: 20)",
-			function() return tostring(CFG.hatchRejoinPlusThreshold or 20) end,
-			function(t) CFG.hatchRejoinPlusThreshold = tonumber(t) or 20; persist() end, 8)
-
-		-- Bronto Configuration (kapan pakai Bronto team buat +30% berat)
-		local hBr = makeAccordion(hatchPage, "Bronto Configuration", 4, true)
-		makeMultiDropdown(hBr, "Special Pets", "Pet yg WAJIB di-hatch pakai Bronto team",
-			reg.PET_EGG_ONLY, CFG.brontoSpecialPets, function() persist() end, 1)
-		makeInput(hBr, "Special Pets Weight Filter", "Special cuma kalau weight > ini (0 = ga difilter)",
-			function() return tostring(CFG.brontoSpecialWeight) end, function(t) CFG.brontoSpecialWeight = tonumber(t) or 0; persist() end, 2)
-		makeMultiDropdown(hBr, "Universal Weight Pet Types", "Tipe pet buat aturan universal (kosong = semua). Tampil dgn tipe egg-nya.",
-			reg.PET_EGG_ONLY, CFG.brontoUniversalTypes, function() persist() end, 3)
-		makeInput(hBr, "Universal Weight Threshold", "Pakai Bronto team kalau weight > ini (0 = off)",
-			function() return tostring(CFG.brontoUniversalWeight) end, function(t) CFG.brontoUniversalWeight = tonumber(t) or 0; persist() end, 4)
-		makeToggle(hBr, "Don't Hatch Special Pets", "Skip special pet sama sekali (jangan di-hatch)",
-			function() return CFG.brontoSkipSpecial end, function(v) CFG.brontoSkipSpecial = v; persist() end, 5)
-		makeInput(hBr, "Bronto Team Delay (sec)", "Tunggu abis swap team sebelum hatch bronto",
-			function() return tostring(CFG.brontoTeamDelay or 5) end, function(t) CFG.brontoTeamDelay = tonumber(t) or 5; persist() end, 6)
-
-		-- Sell Configuration
-		local hSell = makeAccordion(hatchPage, "Sell Configuration", 5, true)
-		makeMultiDropdown(hSell, "Pets to Sell", "Tipe pet yg DIJUAL (sisanya difavoritin biar aman)",
-			reg.PET_EGG_OPTIONS, CFG.sellPetTypes, function() persist() end, 1)
-		makeInput(hSell, "Sell Weight Threshold", "Jual kalau base weight < ini",
-			function() return tostring(CFG.sellWeightThreshold) end, function(t) CFG.sellWeightThreshold = tonumber(t) or 5; persist() end, 2)
-		makeInput(hSell, "Sell Age Threshold", "Jual kalau age < ini",
-			function() return tostring(CFG.sellAgeThreshold) end, function(t) CFG.sellAgeThreshold = tonumber(t) or 3; persist() end, 3)
-		makeMultiDropdown(hSell, "Special Pets to Sell", "Pet spesial (jual by weight)",
-			reg.PET_EGG_ONLY, CFG.sellSpecialTypes, function() persist() end, 4)
-		makeInput(hSell, "Special Pet Weight Threshold", "Jual pet spesial dgn weight < ini (0=off)",
-			function() return tostring(CFG.sellSpecialWeight) end, function(t) CFG.sellSpecialWeight = tonumber(t) or 10; persist() end, 5)
-		local SELLMODE = { { name = "Cycle", display = "Cycle" }, { name = "Backpack", display = "Backpack" } }
-		makeSingleDropdown(hSell, "Sell Mode", "Kapan trigger jual",
-			function() return SELLMODE end, function() return CFG.sellMode or "Cycle" end,
-			function(code) CFG.sellMode = code; persist() end, 6)
-		local SELLSTYLE = { { name = "All at Once", display = "All at Once" }, { name = "One by One", display = "One by One" } }
-		makeSingleDropdown(hSell, "Sell Style", "All at Once = jual semua matched sekaligus",
-			function() return SELLSTYLE end, function() return CFG.sellStyle or "All at Once" end,
-			function(code) CFG.sellStyle = code; persist() end, 7)
-		makeInput(hSell, "Sell Every N Cycles", "Jual tiap N cycle hatch",
-			function() return tostring(CFG.sellEveryNCycles) end, function(t) CFG.sellEveryNCycles = tonumber(t) or 1; persist() end, 8)
-		makeInput(hSell, "Sell When Pets Reach", "Jual kalau backpack pet >= ini",
-			function() return tostring(CFG.sellWhenReach) end, function(t) CFG.sellWhenReach = tonumber(t) or 100; persist() end, 9)
-		makeInput(hSell, "Sell Team Delay (sec)", "Tunggu abis swap team sebelum jual",
-			function() return tostring(CFG.sellTeamDelay) end, function(t) CFG.sellTeamDelay = tonumber(t) or 5; persist() end, 10)
-		makeToggle(hSell, "Auto Boost Before Sell", "Boost pet aktif pakai toy sebelum jual",
-			function() return CFG.autoBoostBeforeSell end, function(v) CFG.autoBoostBeforeSell = v; persist() end, 11)
-		makeButton(hSell, "Sell Now (manual)", "Jalankan sell sekali sekarang",
-			function() task.spawn(function() pcall(ctx.hatchDoSell) end) end, 12)
+		-- START / STOP BAR (Bawah Hatch Page)
+		refreshStartStop = makeStartStopBar(hatchPage,
+			function() return CFG.hatchEnabled end,
+			function()
+				CFG.hatchEnabled = true
+				persist()
+				ctx.startHatch()
+				if ctx.ui.rHatchToggle then ctx.ui.rHatchToggle() end
+			end,
+			function()
+				CFG.hatchEnabled = false
+				persist()
+				ctx.stopHatch()
+				if ctx.ui.rHatchToggle then ctx.ui.rHatchToggle() end
+			end, 999)
 	end
 
 	------------------------------------------------------------------ SHOP
 	do
 		local shopPage = pageRef["Shop"]
 
-		local seedAcc = makeAccordion(shopPage, "Automation Buy Seed", 1, false)
+		local sub = makeSubTabs(shopPage, {
+			{ id = "seed",     name = "Seeds" },
+			{ id = "egg",      name = "Eggs" },
+			{ id = "gear",     name = "Gears" },
+			{ id = "merchant", name = "Merchant" },
+			{ id = "premium",  name = "Premium" },
+		}, "seed", 1)
+
+		-- 1) SEEDS
+		local pSeed = sub.pages["seed"]
+		local seedAcc = makeAccordion(pSeed, "Automation Buy Seed", 1, true)
 		makeMultiDropdownDyn(seedAcc, "Select Seeds to Buy", "Pilih seed buat auto-beli (stock realtime)",
 			function() return ctx.getSeedShopOptions(CFG.buySeedNames) end, CFG.buySeedNames, function() persist() end, 1)
 		makeToggle(seedAcc, "Enable Automation Buy Seed", "Auto-beli seed terpilih tiap ada stock",
 			function() return CFG.buySeedEnabled end,
 			function(v) CFG.buySeedEnabled = v; persist(); if v then ctx.startBuySeed() end end, 2)
 
-		local eggAcc = makeAccordion(shopPage, "Automation Buy Egg", 2, false)
+		-- 2) EGGS
+		local pEgg = sub.pages["egg"]
+		local eggAcc = makeAccordion(pEgg, "Automation Buy Egg", 1, true)
 		makeMultiDropdownDyn(eggAcc, "Select Eggs to Buy", "Pilih egg buat auto-beli (stock realtime)",
 			function() return ctx.getEggShopOptions(CFG.buyEggNames) end, CFG.buyEggNames, function() persist() end, 1)
 		makeToggle(eggAcc, "Enable Automation Buy Egg", "Auto-beli egg terpilih tiap ada stock",
 			function() return CFG.buyEggEnabled end,
 			function(v) CFG.buyEggEnabled = v; persist(); if v then ctx.startBuyEgg() end end, 2)
 
-		local gearAcc = makeAccordion(shopPage, "Automation Buy Gear", 3, false)
+		-- 3) GEARS
+		local pGear = sub.pages["gear"]
+		local gearAcc = makeAccordion(pGear, "Automation Buy Gear", 1, true)
 		makeMultiDropdownDyn(gearAcc, "Select Gear to Buy", "Pilih gear buat auto-beli (stock realtime)",
 			function() return ctx.getGearShopOptions(CFG.buyGearNames) end, CFG.buyGearNames, function() persist() end, 1)
 		makeToggle(gearAcc, "Enable Automation Buy Gear", "Auto-beli gear terpilih tiap ada stock",
 			function() return CFG.buyGearEnabled end,
 			function(v) CFG.buyGearEnabled = v; persist(); if v then ctx.startBuyGear() end end, 2)
 
-		-- Automation Buy Merchant (Traveling Merchant — 1 merchant aktif per waktu)
-		local merAcc = makeAccordion(shopPage, "Automation Buy Merchant", 4, false)
+		-- 4) MERCHANT
+		local pMer = sub.pages["merchant"]
+		local merAcc = makeAccordion(pMer, "Automation Buy Merchant", 1, true)
 		local merStatus = mk("TextLabel", {
 			Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
 			BackgroundTransparency = 1, Text = "Loading...",
-			Font = F.reg, TextSize = 13, TextColor3 = C.txt,
+			Font = F.reg, TextSize = 12, TextColor3 = C.txt,
 			TextXAlignment = Enum.TextXAlignment.Left, TextWrapped = true,
-			LineHeight = 1.35, RichText = true, LayoutOrder = 0
+			LineHeight = 1.3, RichText = true, LayoutOrder = 0
 		}, merAcc)
-		mk("Frame", { Size = UDim2.new(1, 0, 0, 10), BackgroundTransparency = 1, LayoutOrder = 1 }, merAcc)
+		mk("Frame", { Size = UDim2.new(1, 0, 0, 8), BackgroundTransparency = 1, LayoutOrder = 1 }, merAcc)
 		task.spawn(function()
 			while ctx.alive() do
 				if not onScreen(shopPage) then task.wait(1) continue end
@@ -11437,8 +11789,9 @@ return function(ctx)
 			function(v) CFG.merchantAutoOpenUI = v; persist()
 				if v then ctx.startAutoOpenUI() elseif ctx.stopAutoOpenUI then ctx.stopAutoOpenUI() end end, 3)
 
-		-- Premium Shop (dev-product: Robux / Token + Gift)
-		local premAcc = makeAccordion(shopPage, "Premium Shop", 5, false)
+		-- 5) PREMIUM
+		local pPrem = sub.pages["premium"]
+		local premAcc = makeAccordion(pPrem, "Premium Shop", 1, true)
 		makeSingleDropdown(premAcc, "Select Item", "Select gamepass/product to purchase",
 			function() return ctx.getPremiumItemOptions() end,
 			function()
@@ -11446,7 +11799,7 @@ return function(ctx)
 				return "Select Option"
 			end,
 			function(code) CFG.premiumItem = code; persist(); if ctx.premiumShowPrice then ctx.premiumShowPrice() end end, 1)
-		makeSingleDropdown(premAcc, "Payment Method", "Robux atau Token",
+		makeSingleDropdown(premAcc, "Payment Method", "Pilih bayar pakai Robux / in-game Token",
 			function() return ctx.getPremiumPayOptions() end,
 			function() return CFG.premiumPay == "token" and "Token" or "Robux" end,
 			function(code) CFG.premiumPay = code; persist() end, 2)
@@ -11456,20 +11809,27 @@ return function(ctx)
 			function() if ctx.premiumGift then ctx.premiumGift() end end, 4)
 	end
 
-	------------------------------------------------------------------ ELEPHANT (V1)
+	------------------------------------------------------------------ ELEPHANT (V1 & V2)
 	do
 		local elephantPage = pageRef["Elephant"]
-		local acc = makeAccordion(elephantPage, "Automation Elephant V1", 1, true)
+		local sub = makeSubTabs(elephantPage, {
+			{ id = "v1", name = "Elephant V1" },
+			{ id = "v2", name = "Elephant V2 (Swap 40)" },
+		}, "v1", 1)
+
+		-- V1 SUB-TAB
+		local pV1 = sub.pages["v1"]
+		local acc = makeAccordion(pV1, "Automation Elephant V1", 1, true)
 
 		-- Status (live)
 		local statusLbl = mk("TextLabel", {
 			Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
 			BackgroundTransparency = 1, Text = "Loading stats...",
-			Font = F.reg, TextSize = 13, TextColor3 = C.txt,
+			Font = F.reg, TextSize = 12, TextColor3 = C.txt,
 			TextXAlignment = Enum.TextXAlignment.Left, TextWrapped = true,
-			LineHeight = 1.35, RichText = true, LayoutOrder = 0
+			LineHeight = 1.3, RichText = true, LayoutOrder = 0
 		}, acc)
-		mk("Frame", { Size = UDim2.new(1, 0, 0, 12), BackgroundTransparency = 1, LayoutOrder = 1 }, acc)
+		mk("Frame", { Size = UDim2.new(1, 0, 0, 8), BackgroundTransparency = 1, LayoutOrder = 1 }, acc)
 		task.spawn(function()
 			while ctx.alive() do
 				if not onScreen(elephantPage) then task.wait(1) continue end
@@ -11501,24 +11861,27 @@ return function(ctx)
 		makeInput(acc, "Max Target Pets", "Jumlah pet target aktif barengan",
 			function() return tostring(CFG.elephantMaxPets) end,
 			function(txt) CFG.elephantMaxPets = tonumber(txt) or 2; persist() end, 5)
+		local refreshEleBar
 		makeToggle(acc, "Enable Automation Elephant", "Rotasi pet target otomatis. OFF = cabut semua pet dari garden.",
 			function() return CFG.elephantEnabled end,
 			function(v)
 				CFG.elephantEnabled = v; persist()
 				if v then ctx.startElephant() else ctx.stopElephant() end
+				if refreshEleBar then refreshEleBar() end
 			end, 6)
 
 		-- ===================== ELEPHANT V2 (swap gajah on lvl 40) =====================
-		local acc2 = makeAccordion(elephantPage, "Automation Elephant V2", 2, false)
+		local pV2 = sub.pages["v2"]
+		local acc2 = makeAccordion(pV2, "Automation Elephant V2", 1, true)
 
 		local v2Lbl = mk("TextLabel", {
 			Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
 			BackgroundTransparency = 1, Text = "Loading...",
-			Font = F.reg, TextSize = 13, TextColor3 = C.txt,
+			Font = F.reg, TextSize = 12, TextColor3 = C.txt,
 			TextXAlignment = Enum.TextXAlignment.Left, TextWrapped = true,
-			LineHeight = 1.35, RichText = true, LayoutOrder = 0
+			LineHeight = 1.3, RichText = true, LayoutOrder = 0
 		}, acc2)
-		mk("Frame", { Size = UDim2.new(1, 0, 0, 12), BackgroundTransparency = 1, LayoutOrder = 1 }, acc2)
+		mk("Frame", { Size = UDim2.new(1, 0, 0, 8), BackgroundTransparency = 1, LayoutOrder = 1 }, acc2)
 		task.spawn(function()
 			while ctx.alive() do
 				if not onScreen(elephantPage) then task.wait(1) continue end
@@ -11543,13 +11906,13 @@ return function(ctx)
 
 		makeMultiDropdownDyn(acc2, "V2 Elephant Team", "Team standby di garden (sumber pilihan Pet Switch)",
 			function() return ctx.inventoryPetOptions(CFG.elephantV2Team) end, CFG.elephantV2Team, function() persist() end, 2)
-		makeMultiDropdown(acc2, "V2 Target Pet Types", "Tipe pet target yg dipantau levelnya (yg di-level PNP)",
+		makeMultiDropdown(acc2, "V2 Target Pet Types", "Select pet types to auto-level + elephant (semua pet di game)",
 			reg.PET_OPTIONS, CFG.elephantV2Types, function() persist() end, 3)
-		makeSingleDropdown(acc2, "Pet Gajah", "Pet booster berat yg di-swap masuk pas target lvl 40",
+		makeSingleDropdown(acc2, "Gajah Pet (Slot 1)", "Pilih gajah yang akan di-swap masuk saat target lvl 40",
 			function() return ctx.elephantV2GajahOptions() end,
 			function() return ctx.elephantV2Label(CFG.elephantV2Gajah) end,
 			function(uuid) CFG.elephantV2Gajah = uuid; persist() end, 4)
-		makeSingleDropdown(acc2, "Pet Switch", "Pet team yg ditukar sama gajah (dari V2 Elephant Team)",
+		makeSingleDropdown(acc2, "Pet Switch (Slot 2)", "Pilih pet dari Team yang diganti oleh Gajah (biasanya Capy)",
 			function() return ctx.elephantV2SwitchOptions() end,
 			function() return ctx.elephantV2Label(CFG.elephantV2Switch) end,
 			function(uuid) CFG.elephantV2Switch = uuid; persist() end, 5)
@@ -11568,6 +11931,16 @@ return function(ctx)
 				CFG.elephantV2Enabled = v; persist()
 				if v then ctx.startElephantV2() else ctx.stopElephantV2() end
 			end, 9)
+
+		-- Start/Stop Bar for V1
+		refreshEleBar = makeStartStopBar(elephantPage,
+			function() return CFG.elephantEnabled end,
+			function()
+				CFG.elephantEnabled = true; persist(); ctx.startElephant()
+			end,
+			function()
+				CFG.elephantEnabled = false; persist(); ctx.stopElephant()
+			end, 999)
 	end
 
 	------------------------------------------------------------------ LEVELING
@@ -12477,7 +12850,7 @@ return function(ctx)
 
 	----------------------------------------------------------------- Main Window (Compact & Ultra-Legible for Mobile/Android)
 	local main = mk("Frame", {
-		Size = UDim2.fromOffset(610, 375),
+		Size = UDim2.fromOffset(640, 385),
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.5),
 		BackgroundColor3 = C.bg,
@@ -12678,7 +13051,7 @@ return function(ctx)
 		main.Size = UDim2.fromOffset(0, 0)
 		fitScale()
 		TS:Create(main, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-			Size = UDim2.fromOffset(610, 375),
+			Size = UDim2.fromOffset(640, 385),
 			BackgroundTransparency = 0.04,
 		}):Play()
 	end)
@@ -12832,7 +13205,7 @@ return function(ctx)
 
 	----------------------------------------------------------------- Left Sidebar
 	local sidebar = mk("Frame", {
-		Size = UDim2.new(0, 154, 1, -54),
+		Size = UDim2.new(0, 138, 1, -54),
 		Position = UDim2.fromOffset(8, 48),
 		BackgroundColor3 = C.panel,
 		BorderSizePixel = 0,
@@ -12917,8 +13290,8 @@ return function(ctx)
 
 	----------------------------------------------------------------- Right Content Frame
 	local content = mk("Frame", {
-		Size = UDim2.new(1, -174, 1, -56),
-		Position = UDim2.fromOffset(166, 49),
+		Size = UDim2.new(1, -154, 1, -54),
+		Position = UDim2.fromOffset(148, 48),
 		BackgroundTransparency = 1,
 	}, main)
 
