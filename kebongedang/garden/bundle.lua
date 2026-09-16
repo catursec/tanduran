@@ -1,6 +1,6 @@
 -- AUTO-GENERATED oleh tools/bundle.js — JANGAN edit manual.
 -- Edit modul-nya langsung, terus run `node tools/bundle.js`.
--- 43 modul, di-generate 2026-09-16T08:52:23.188Z
+-- 43 modul, di-generate 2026-09-16T09:12:24.223Z
 return {
 	["app.lua"] = [=[
 --[[ app.lua — init akhir garden: default tab Inventory + auto-resume automation. ]]
@@ -4592,12 +4592,17 @@ return function(ctx)
 		local eqDelay = tonumber(equipDelay) or 0.15
 		local keep = {}
 		for u in pairs(teamSet) do keep[u] = true end
+		local hasUnequipped = false
 		for _, u in ipairs(equippedList()) do
 			if not keep[u] then
 				pcall(function() PetsRemote:FireServer("UnequipPet", u) end)
+				hasUnequipped = true
 				if unDelay > 0 then task.wait(unDelay) end
 			end
 		end
+		-- Jika ada pet yg dicabut, beri jeda sedikit agar server game membebaskan slot garden
+		if hasUnequipped then task.wait(0.15) end
+
 		local eqNow = {}
 		for _, u in ipairs(equippedList()) do eqNow[u] = true end
 		for u in pairs(teamSet) do
@@ -4619,17 +4624,25 @@ return function(ctx)
 	local function equipTeam(teamSet, label, unequipDelay, equipDelay)
 		if not next(teamSet or {}) then return true end
 		if teamMatches(teamSet) and teamActive(teamSet) then return true end -- fast path
+		ctx.state.teamSwapActive = true
 		ctx.state.hatchStatus = (label or "Team") .. ": equipping..."
 		-- 1) pasang sampai data-equipped lengkap
-		for _ = 1, 6 do
-			if teamMatches(teamSet) then break end
+		local ok = false
+		for _ = 1, 8 do
+			if teamMatches(teamSet) then ok = true; break end
 			equipTeamOnce(teamSet, unequipDelay, equipDelay)
-			task.wait(0.2)
+			task.wait(0.25)
 		end
-		if not teamMatches(teamSet) then return false end -- beneran ga bisa equip -> gagal
+		if not ok then
+			ctx.state.teamSwapActive = false
+			return false
+		end
 		-- 2) best-effort tunggu pet aktif (model spawn) — poll max ~4s. Begitu kebaca, lanjut.
 		for _ = 1, 20 do
-			if teamActive(teamSet) then return true end
+			if teamActive(teamSet) then
+				ctx.state.teamSwapActive = false
+				return true
+			end
 			ctx.state.hatchStatus = (label or "Team") .. ": nunggu pet aktif..."
 			task.wait(0.2)
 		end
@@ -4637,6 +4650,7 @@ return function(ctx)
 		--    Boost server tetap kepasang -> LANJUT (jgn skip). Settle bentar buat jaga2.
 		ctx.state.hatchStatus = (label or "Team") .. ": ke-equip (settle)..."
 		task.wait(1.5)
+		ctx.state.teamSwapActive = false
 		return true
 	end
 
@@ -5648,6 +5662,7 @@ return function(ctx)
 			end
 		end
 		if sellNow then
+			ctx.state.pnpBlockedByHatch = true
 			ctx.state.hatchPhase = "Selling Pets"
 			if next(CFG.hatchSellTeam or {}) and not equipTeam(CFG.hatchSellTeam, "Sell Team", CFG.hatchSellUnequipDelay, CFG.hatchSellEquipDelay) then return end -- team wajib lengkap
 			task.wait(CFG.sellTeamDelay or 5)
@@ -5686,6 +5701,7 @@ return function(ctx)
 		local curPets, maxPets = getInventoryCapacity()
 		if maxPets > 0 and curPets >= maxPets then
 			if CFG.autoSellEnabled and not ctx.state.sellDoneThisReport then
+				ctx.state.pnpBlockedByHatch = true
 				ctx.state.hatchPhase = "Selling Pets (Inv Full)"
 				if not next(CFG.hatchSellTeam or {}) or equipTeam(CFG.hatchSellTeam, "Sell Team", CFG.hatchSellUnequipDelay, CFG.hatchSellEquipDelay) then
 					task.wait(CFG.sellTeamDelay or 5)
@@ -5728,6 +5744,7 @@ return function(ctx)
 		if placed < maxP then
 			ctx.state.hatchPhase = ("Placing Eggs (%d/%d)"):format(placed, maxP)
 			if not equipTeam(CFG.hatchCoreTeam, "Core Team", CFG.hatchCoreUnequipDelay, CFG.hatchCoreEquipDelay) then return end -- team wajib lengkap dulu
+			ctx.state.pnpBlockedByHatch = false
 			local added = placeEggs(maxP)
 			placed = placedEggCount()
 			if added > 0 and placed < maxP then return end -- masih nambah -> lanjut place tick berikut
@@ -5744,6 +5761,7 @@ return function(ctx)
 		local ready = readyEggs()
 		-- 3) HATCH: HANYA kalau SEMUA egg (yg ke-place) udah READY (jangan switch selama timer jalan)
 		if placed > 0 and #ready >= placed then
+			ctx.state.pnpBlockedByHatch = true
 			local curHatchPets, maxHatchPets = getInventoryCapacity()
 			if maxHatchPets > 0 and curHatchPets >= maxHatchPets then
 				handleInventoryFull(curHatchPets, maxHatchPets)
@@ -5819,6 +5837,7 @@ return function(ctx)
 		-- 4) INCUBATE: masih ada egg belum ready -> TETAP Core Team (speed), jangan switch/hatch
 		ctx.state.hatchPhase = ("Incubating (%d/%d ready)"):format(#ready, placed)
 		equipTeam(CFG.hatchCoreTeam, "Core Team")
+		ctx.state.pnpBlockedByHatch = false
 		ctx.state.hatchStatus = ("Nunggu egg ready (%d/%d)..."):format(#ready, placed)
 	end
 
@@ -5831,6 +5850,8 @@ return function(ctx)
 			task.wait(1.0)
 		end
 		ctx.state.hatchStatus = "Idle"
+		ctx.state.pnpBlockedByHatch = false
+		ctx.state.teamSwapActive = false
 	end
 
 	function ctx.startHatch()
@@ -5864,6 +5885,8 @@ return function(ctx)
 	function ctx.stopHatch()
 		ctx.state.hatchId = (ctx.state.hatchId or 0) + 1
 		ctx.state.hatchStatus = "Idle"
+		ctx.state.pnpBlockedByHatch = false
+		ctx.state.teamSwapActive = false
 	end
 
 	----------------------------------------------------------------- AUTO FAVORITE
@@ -9153,6 +9176,18 @@ return function(ctx)
 		if not eq then return out end
 		local sel = CFG.pnpUuids or {}
 		for _, uuid in ipairs(eq) do
+			-- Proteksi Auto Hatch: jangan sentuh pet yang merupakan anggota Hatch/Bronto/Sell team
+			if CFG.hatchEnabled then
+				if (CFG.hatchHatchTeam and CFG.hatchHatchTeam[uuid])
+				   or (CFG.hatchBrontoTeam and CFG.hatchBrontoTeam[uuid])
+				   or (CFG.hatchSellTeam and CFG.hatchSellTeam[uuid]) then
+					continue
+				end
+				-- Jika Core Team ditentukan di config Hatch, hanya target pet Core Team
+				if next(CFG.hatchCoreTeam or {}) and not CFG.hatchCoreTeam[uuid] then
+					continue
+				end
+			end
 			local pt = inv and inv[uuid] and inv[uuid].PetType
 			if (not next(sel)) or sel[uuid] then
 				out[#out + 1] = { uuid = uuid, petType = pt }
@@ -9235,6 +9270,12 @@ return function(ctx)
 	local function runPetThread(uuid, myId)
 		petThreads[uuid] = true
 		while CFG.pnpEnabled and ctx.alive() and ctx.state.pnpV1Id == myId do
+			-- Jika Auto Hatch sedang swap team atau di fase non-Core (Hatching / Selling), jeda PNP
+			if ctx.state.teamSwapActive or ctx.state.pnpBlockedByHatch then
+				task.wait(0.5)
+				continue
+			end
+
 			local stillTarget = false
 			for _, p in ipairs(targetPets()) do
 				if p.uuid == uuid then stillTarget = true; break end
@@ -9246,9 +9287,13 @@ return function(ctx)
 			if pos and mainCd ~= nil and mainCd <= READY_TH then
 				if (CFG.pickupDelay or 0) > 0 then task.wait(CFG.pickupDelay) end
 				if not (CFG.pnpEnabled and ctx.state.pnpV1Id == myId) then break end
+				if ctx.state.teamSwapActive or ctx.state.pnpBlockedByHatch then break end
+
 				pcall(function() PetsService:FireServer("UnequipPet", uuid) end)
 				if (CFG.equipDelay or 0) > 0 then task.wait(CFG.equipDelay) end
 				if not (CFG.pnpEnabled and ctx.state.pnpV1Id == myId) then break end
+				if ctx.state.teamSwapActive or ctx.state.pnpBlockedByHatch then break end
+
 				pcall(function() PetsService:FireServer("EquipPet", uuid, CFrame.new(pos)) end)
 			end
 			task.wait(math.max(0.01, tonumber(CFG.pnpScanInterval) or 0.05))
@@ -9261,6 +9306,12 @@ return function(ctx)
 		local myId = ctx.state.pnpV1Id
 		ctx.elevate()
 		while CFG.pnpEnabled and ctx.alive() and ctx.state.pnpV1Id == myId do
+			if ctx.state.teamSwapActive or ctx.state.pnpBlockedByHatch then
+				setStatus("PNP V1: dijeda (Hatch/Sell team aktif)")
+				task.wait(1)
+				continue
+			end
+
 			local pets = targetPets()
 			if #pets == 0 then
 				setStatus("PNP V1: tidak ada pet target (equip pet dulu)")
@@ -9341,6 +9392,18 @@ return function(ctx)
 		if not eq then return out end
 		local sel = CFG.pnpV2Uuids or {}
 		for _, uuid in ipairs(eq) do
+			-- Proteksi Auto Hatch: jangan sentuh pet yang merupakan anggota Hatch/Bronto/Sell team
+			if CFG.hatchEnabled then
+				if (CFG.hatchHatchTeam and CFG.hatchHatchTeam[uuid])
+				   or (CFG.hatchBrontoTeam and CFG.hatchBrontoTeam[uuid])
+				   or (CFG.hatchSellTeam and CFG.hatchSellTeam[uuid]) then
+					continue
+				end
+				-- Jika Core Team ditentukan di config Hatch, hanya target pet Core Team
+				if next(CFG.hatchCoreTeam or {}) and not CFG.hatchCoreTeam[uuid] then
+					continue
+				end
+			end
 			local pt = inv and inv[uuid] and inv[uuid].PetType
 			if (not next(sel)) or sel[uuid] then
 				out[#out + 1] = { uuid = uuid, petType = pt }
@@ -9366,6 +9429,12 @@ return function(ctx)
 		petThreads[uuid] = true
 		if cdLive[uuid] == nil then seedCd(uuid) end
 		while CFG.pnpV2Enabled and ctx.alive() and ctx.state.pnpV2Id == myId do
+			-- Jika Auto Hatch sedang swap team atau di fase non-Core (Hatching / Selling), jeda PNP
+			if ctx.state.teamSwapActive or ctx.state.pnpBlockedByHatch then
+				task.wait(0.5)
+				continue
+			end
+
 			local stillTarget = false
 			for _, p in ipairs(targetPets()) do
 				if p.uuid == uuid then stillTarget = true; break end
@@ -9377,9 +9446,13 @@ return function(ctx)
 			if pos and cd ~= nil and cd <= READY_TH and (os.clock() - (lastPlace[uuid] or 0)) > 0.25 then
 				if (CFG.pnpV2PickupDelay or 0) > 0 then task.wait(CFG.pnpV2PickupDelay) end
 				if not (CFG.pnpV2Enabled and ctx.state.pnpV2Id == myId) then break end
+				if ctx.state.teamSwapActive or ctx.state.pnpBlockedByHatch then break end
+
 				pcall(function() PetsService:FireServer("UnequipPet", uuid) end)
 				task.wait(math.max(0.01, CFG.pnpV2EquipDelay or 0.03))
 				if not (CFG.pnpV2Enabled and ctx.state.pnpV2Id == myId) then break end
+				if ctx.state.teamSwapActive or ctx.state.pnpBlockedByHatch then break end
+
 				pcall(function() PetsService:FireServer("EquipPet", uuid, CFrame.new(pos)) end)
 				lastPlace[uuid] = os.clock()
 			end
@@ -9393,6 +9466,12 @@ return function(ctx)
 		local myId = ctx.state.pnpV2Id
 		ctx.elevate()
 		while CFG.pnpV2Enabled and ctx.alive() and ctx.state.pnpV2Id == myId do
+			if ctx.state.teamSwapActive or ctx.state.pnpBlockedByHatch then
+				setStatus("PNP V2: dijeda (Hatch/Sell team aktif)")
+				task.wait(1)
+				continue
+			end
+
 			local pets = targetPets()
 			if #pets == 0 then
 				setStatus("PNP V2: tidak ada pet target (equip pet dulu)")
