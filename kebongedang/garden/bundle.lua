@@ -1,6 +1,6 @@
 -- AUTO-GENERATED oleh tools/bundle.js — JANGAN edit manual.
 -- Edit modul-nya langsung, terus run `node tools/bundle.js`.
--- 43 modul, di-generate 2026-09-16T08:25:32.397Z
+-- 43 modul, di-generate 2026-09-16T08:52:23.188Z
 return {
 	["app.lua"] = [=[
 --[[ app.lua — init akhir garden: default tab Inventory + auto-resume automation. ]]
@@ -6256,6 +6256,18 @@ return function(ctx)
 
 	----------------------------------------------------------------- one trade
 	local function doOneTrade(target)
+		-- Cek dulu ketersediaan pet yang cocok sebelum melakukan apapun!
+		local pets = matchingPetUuids(CFG.petsPerTrade)
+		if #pets == 0 then
+			log("Tidak ada pet cocok filter. Stop send ticket request.")
+			setStatus("Tidak ada pet cocok filter. Auto stop.")
+			ctx.state.tradeRunning = false
+			CFG.tradeEnabled = false
+			if ctx.persistState then ctx.persistState() end
+			if ctx.refreshTradeStatus then ctx.refreshTradeStatus() end
+			return false
+		end
+
 		-- pegang tiket dulu, wajib biar panel trade kebuka
 		if not equipTradingTicket() then
 			log("Trading Ticket tidak ada / gagal di-equip. Stop.")
@@ -6274,11 +6286,15 @@ return function(ctx)
 			return false
 		end
 
-		-- kumpulkan pet
-		local pets = matchingPetUuids(CFG.petsPerTrade)
+		-- re-check ketersediaan pet setelah trade terbuka
+		pets = matchingPetUuids(CFG.petsPerTrade)
 		if #pets == 0 then
 			log("Tidak ada pet cocok filter. Batalkan trade.")
 			pcall(function() Decline:FireServer() end)
+			ctx.state.tradeRunning = false
+			CFG.tradeEnabled = false
+			if ctx.persistState then ctx.persistState() end
+			if ctx.refreshTradeStatus then ctx.refreshTradeStatus() end
 			return false
 		end
 
@@ -6309,17 +6325,17 @@ return function(ctx)
 			task.wait(0.3)
 		end
 
-		-- add item
-		log(("Cocok %d pet. Contoh uuid=%s"):format(#pets, tostring(pets[1] and pets[1].uuid)))
+		-- add item (percepat proses pengisian pet)
+		log(("Cocok %d pet. Mengisi offer..."):format(#pets))
 		setStatus(("Menambah %d pet..."):format(#pets))
 		for _, p in ipairs(pets) do
 			if not ctx.state.tradeRunning then break end
 			pcall(function() AddItem:FireServer("Pet", p.uuid) end)
-			task.wait(0.3)
+			task.wait(0.06)
 		end
 
 		-- verifikasi berapa pet yang benar-benar masuk ke offer kita
-		task.wait(0.5)
+		task.wait(0.4)
 		do
 			local d = replicatorData()
 			local myIdx
@@ -6391,8 +6407,39 @@ return function(ctx)
 	local function doOneGift(target)
 		local pets = matchingPetUuids(CFG.petsPerTrade or 1)
 		if #pets == 0 then
-			log("Tidak ada pet cocok filter untuk Gift.")
+			log("Tidak ada pet cocok filter untuk Gift. Stop.")
+			setStatus("Pet cocok filter 0. Auto stop.")
+			ctx.state.tradeRunning = false
+			CFG.tradeEnabled = false
+			if ctx.persistState then ctx.persistState() end
+			if ctx.refreshTradeStatus then ctx.refreshTradeStatus() end
 			return false
+		end
+
+		local targetChar = target.Character
+		local targetHrp = targetChar and (targetChar:FindFirstChild("HumanoidRootPart") or targetChar.PrimaryPart)
+		if not targetHrp then
+			log("Target " .. target.Name .. " belum spawn / tidak ada character.")
+			setStatus("Target tidak ada character.")
+			return false
+		end
+
+		local myChar = LP.Character
+		local myHrp = myChar and (myChar:FindFirstChild("HumanoidRootPart") or myChar.PrimaryPart)
+		local hum = myChar and myChar:FindFirstChildOfClass("Humanoid")
+		if not myHrp or not hum then
+			log("Character kita belum siap.")
+			return false
+		end
+
+		-- Teleport dekat target (berdiri di depan target dalam jarak ~3 stud)
+		local dist = (myHrp.Position - targetHrp.Position).Magnitude
+		if dist > 6 then
+			setStatus(("Mendekat ke %s (jarak: %.1f)..."):format(target.Name, dist))
+			pcall(function()
+				myHrp.CFrame = targetHrp.CFrame * CFrame.new(0, 0, -3) * CFrame.Angles(0, math.pi, 0)
+			end)
+			task.wait(0.3)
 		end
 
 		local GiftPet = ctx.deps.GiftPet or game:GetService("ReplicatedStorage").GameEvents:FindFirstChild("GiftPet")
@@ -6411,36 +6458,108 @@ return function(ctx)
 			return nil
 		end
 
-		local hum = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
 		local sentCount = 0
 
 		for _, p in ipairs(pets) do
 			if not ctx.state.tradeRunning then break end
 			local tool = findToolByUuid(p.uuid)
 			if tool then
+				-- Auto unfavorite jika difavoritkan
 				if p.fav and Favorite_Item then
 					pcall(function() Favorite_Item:FireServer(tool) end)
 					if Favorite_Item_BE then pcall(function() Favorite_Item_BE:Fire(tool) end) end
 					task.wait(0.15)
 				end
 
-				if hum then
-					pcall(function() hum:EquipTool(tool) end)
-					task.wait(0.2)
+				-- Equip tool ke character dan tunggu sampai ter-equip
+				if hum and tool.Parent ~= LP.Character then
+					hum:EquipTool(tool)
+					local eq0 = os.clock()
+					repeat task.wait(0.05) until tool.Parent == LP.Character or (os.clock() - eq0) > 1.2
+				end
+
+				-- Pastikan masih dekat target
+				if myHrp and targetHrp and (myHrp.Position - targetHrp.Position).Magnitude > 6 then
+					pcall(function()
+						myHrp.CFrame = targetHrp.CFrame * CFrame.new(0, 0, -3) * CFrame.Angles(0, math.pi, 0)
+					end)
+					task.wait(0.1)
 				end
 
 				setStatus(("Mengirim gift pet ke %s..."):format(target.Name))
+
+				-- 1. Coba interaksi ProximityPrompt di target character
+				if target.Character then
+					for _, desc in ipairs(target.Character:GetDescendants()) do
+						if desc:IsA("ProximityPrompt") then
+							local aText = desc.ActionText:lower()
+							local oText = desc.ObjectText:lower()
+							local pName = desc.Name:lower()
+							if aText:find("gift") or oText:find("gift") or pName:find("gift") or aText:find("give") then
+								if type(fireproximityprompt) == "function" then
+									pcall(function() fireproximityprompt(desc) end)
+								else
+									pcall(function()
+										desc:InputHoldBegin()
+										task.wait(desc.HoldDuration + 0.05)
+										desc:InputHoldEnd()
+									end)
+								end
+							end
+						end
+					end
+				end
+
+				-- 2. Coba fire semua kemungkinan remotes
 				if GiftPet then
+					pcall(function() GiftPet:FireServer(target) end)
 					pcall(function() GiftPet:FireServer(target, tool) end)
 					pcall(function() GiftPet:FireServer(target, p.uuid) end)
+					pcall(function() GiftPet:FireServer(tool, target) end)
+					pcall(function() GiftPet:FireServer(target.Character) end)
 				end
 				if Gift then
+					pcall(function() Gift:FireServer(target) end)
 					pcall(function() Gift:FireServer(target, tool) end)
 					pcall(function() Gift:FireServer(target, p.uuid) end)
+					pcall(function() Gift:FireServer(tool, target) end)
+					pcall(function() Gift:FireServer(target.Character) end)
 				end
-				sentCount = sentCount + 1
-				log(("Gift terkirim ke %s: %s"):format(target.Name, tostring(p.petType or "Pet")))
-				task.wait(1.5)
+
+				local GE = game:GetService("ReplicatedStorage"):FindFirstChild("GameEvents")
+				if GE then
+					local sendGift = GE:FindFirstChild("SendGift") or GE:FindFirstChild("GiftItem")
+					if sendGift and sendGift:IsA("RemoteEvent") then
+						pcall(function() sendGift:FireServer(target, tool) end)
+						pcall(function() sendGift:FireServer(target) end)
+					end
+				end
+
+				-- 3. Coba tool:Activate()
+				pcall(function() tool:Activate() end)
+
+				-- Tunggu verifikasi apakah pet sudah terkirim / diterima lawan
+				local waitStart = os.clock()
+				local petGone = false
+				repeat
+					task.wait(0.3)
+					if not findToolByUuid(p.uuid) then
+						petGone = true
+						break
+					end
+					if os.clock() - waitStart > 1.2 then
+						if GiftPet then pcall(function() GiftPet:FireServer(target, tool) end) end
+						if Gift then pcall(function() Gift:FireServer(target, tool) end) end
+					end
+				until (os.clock() - waitStart) > 3.5 or not ctx.state.tradeRunning
+
+				if petGone then
+					sentCount = sentCount + 1
+					log(("Gift terkirim & diterima %s: %s"):format(target.Name, tostring(p.petType or "Pet")))
+				else
+					log(("Gift %s ke %s belum diterima/gagal."):format(tostring(p.petType or "Pet"), target.Name))
+				end
+				task.wait(0.4)
 			end
 		end
 
@@ -11302,7 +11421,10 @@ return function(ctx)
 	local makeSubTabs = ctx.makeSubTabs
 	local makeStartStopBar = ctx.makeStartStopBar
 
-	local FIXED_TABS = { Hatch = true, Flow = true, Shop = true, Elephant = true }
+	local FIXED_TABS = {
+		Hatch = true, Flow = true, Shop = true, Elephant = true,
+		Pet = true, Inventory = true, Leveling = true, Mutation = true,
+	}
 	-- sidebar tabs (urut sesuai referensi)
 	local TABS = {
 		{ "Pet", "Pet", "🐾" },
@@ -12558,8 +12680,16 @@ return function(ctx)
 	------------------------------------------------------------------ LEVELING
 	local levelingPage = pageRef["Leveling"]
 	do
+		local levSub = makeSubTabs(levelingPage, {
+			{ id = "v1", name = "Leveling V1" },
+			{ id = "v2", name = "Leveling V2" },
+		}, "v1", { hasBottomBar = false, hasInfoLine = false })
+
+		local pLevV1 = levSub.pages["v1"]
+		local pLevV2 = levSub.pages["v2"]
+
 		-- Automation Leveling V1 — status + settings jadi satu accordion
-		local levAcc = makeAccordion(levelingPage, "Automation Leveling V1", 1, true)
+		local levAcc = makeAccordion(pLevV1, "Automation Leveling V1", 1, true)
 
 		local statusLbl = mk("TextLabel", {
 			Size = UDim2.new(1, 0, 0, 0),
@@ -12635,7 +12765,7 @@ return function(ctx)
 			end, 6)
 
 		---------------------------------------------------------- Automation Leveling V2 (2 phase)
-		local lv2 = makeAccordion(levelingPage, "Automation Leveling V2", 2, true)
+		local lv2 = makeAccordion(pLevV2, "Automation Leveling V2", 1, true)
 
 		local lv2Lbl = mk("TextLabel", {
 			Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1,
@@ -12700,8 +12830,16 @@ return function(ctx)
 	------------------------------------------------------------------ MUTATION
 	local mutationPage = pageRef["Mutation"]
 	do
-		-- 1. Status Accordion
-		local statusAcc = makeAccordion(mutationPage, "Automation Mutation Machine", 1, true)
+		local mutSub = makeSubTabs(mutationPage, {
+			{ id = "machine", name = "Machine" },
+			{ id = "cleanse", name = "Aura Cleanse" },
+		}, "machine", { hasBottomBar = false, hasInfoLine = false })
+
+		local pMutMachine = mutSub.pages["machine"]
+		local pMutCleanse = mutSub.pages["cleanse"]
+
+		-- 1. Status Accordion (Machine)
+		local statusAcc = makeAccordion(pMutMachine, "Automation Mutation Machine", 1, true)
 		
 		local statusLbl = mk("TextLabel", {
 			Size = UDim2.new(1, 0, 0, 0),
@@ -12796,7 +12934,7 @@ return function(ctx)
 			end, 9)
 
 		-- Accordion: Automation Mutation (mutasi via aura + cleanse)
-		local cleanseAcc = makeAccordion(mutationPage, "Automation Mutation", 2, false)
+		local cleanseAcc = makeAccordion(pMutCleanse, "Automation Mutation (Aura)", 1, true)
 
 		-- Status (live)
 		local cleanseLbl = mk("TextLabel", {
@@ -12854,8 +12992,18 @@ return function(ctx)
 	local pet = pageRef["Pet"]
 	local v1Render, v2Render -- buat sync visual mutual-exclusion
 
+	local petSub = makeSubTabs(pet, {
+		{ id = "v1",    name = "PnP V1" },
+		{ id = "v2",    name = "PnP V2" },
+		{ id = "boost", name = "Boost Pet" },
+	}, "v1", { hasBottomBar = false, hasInfoLine = false })
+
+	local pPetV1 = petSub.pages["v1"]
+	local pPetV2 = petSub.pages["v2"]
+	local pPetBoost = petSub.pages["boost"]
+
 	------------------------------------------------------------------ PnP V1 (polling)
-	local pnp = makeAccordion(pet, "Automation Pickup Pet V1", 1, true)
+	local pnp = makeAccordion(pPetV1, "Automation Pickup Pet V1", 1, true)
 	makeMultiDropdownDyn(pnp, "Select Pets for Pickup [V1]", "Pilih pet dari backpack (kosong = semua yg di garden)",
 		function() return ctx.inventoryPetOptions(CFG.pnpUuids) end, CFG.pnpUuids, function() persist() end, 1)
 	makeInput(pnp, "Pickup Delay (Seconds) [V1]", "Jeda tiap siklus (idealnya = saat skill ready)",
@@ -12882,7 +13030,7 @@ return function(ctx)
 		end, 5)
 
 	------------------------------------------------------------------ PnP V2 (event-driven)
-	local pnp2 = makeAccordion(pet, "Automation Pickup Pet V2", 2, false)
+	local pnp2 = makeAccordion(pPetV2, "Automation Pickup Pet V2", 1, true)
 	makeMultiDropdownDyn(pnp2, "Select Pets for Pickup [V2]", "Pilih pet dari backpack (kosong = semua yg di garden)",
 		function() return ctx.inventoryPetOptions(CFG.pnpV2Uuids) end, CFG.pnpV2Uuids, function() persist() end, 1)
 	makeInput(pnp2, "Pickup Delay (Seconds) [V2]", "Jeda sebelum tiap pickup",
@@ -12909,7 +13057,7 @@ return function(ctx)
 		end, 5)
 
 	-- Accordion: Automation Boost Pet
-	local boostAcc = makeAccordion(pet, "Automation Boost Pet", 3, false)
+	local boostAcc = makeAccordion(pPetBoost, "Automation Boost Pet", 1, true)
 	makeMultiDropdownDyn(boostAcc, "Select Pets to Boost", "Pilih pet yang mau di-boost (aktif di garden)",
 		function() return ctx.inventoryPetOptions(CFG.boostPetUuids) end, CFG.boostPetUuids, function() persist() end, 1)
 	makeMultiDropdownDyn(boostAcc, "Select Boost Items", "Pilih item boost (Pet Toy) yang dipakai",
@@ -12924,8 +13072,18 @@ return function(ctx)
 	------------------------------------------------------------------ INVENTORY
 	local inv = pageRef["Inventory"]
 
+	local invSub = makeSubTabs(inv, {
+		{ id = "trade",  name = "Auto Trade" },
+		{ id = "accept", name = "Auto Accept" },
+		{ id = "fav",    name = "Favorite" },
+	}, "trade", { hasBottomBar = false, hasInfoLine = false })
+
+	local pInvTrade  = invSub.pages["trade"]
+	local pInvAccept = invSub.pages["accept"]
+	local pInvFav    = invSub.pages["fav"]
+
 	-- Accordion: Automation Trade
-	local at = makeAccordion(inv, "Automation Trade", 1, true)
+	local at = makeAccordion(pInvTrade, "Automation Trade", 1, true)
 
 	local TRADE_METHODS = {
 		{ name = "ticket", display = "Ticket (Normal Trade)" },
@@ -13002,7 +13160,7 @@ return function(ctx)
 		end, 9)
 
 	-- Accordion: Automation Accept
-	local acc = makeAccordion(inv, "Automation Accept", 2, false)
+	local acc = makeAccordion(pInvAccept, "Automation Accept", 1, true)
 	makeToggle(acc, "Automation Accept Gifts", "Automation accept incoming gifts",
 		function() return CFG.acceptGifts end,
 		function(v) CFG.acceptGifts = v; persist() end, 1)
@@ -13011,7 +13169,7 @@ return function(ctx)
 		function(v) CFG.acceptTrades = v; persist() end, 2)
 
 	-- Accordion: Automation Favourite Pets
-	local fav = makeAccordion(inv, "Automation Favourite Pets", 3, false)
+	local fav = makeAccordion(pInvFav, "Automation Favourite Pets", 1, true)
 	makeToggle(fav, "Auto Favourite Pets", "Automatically favorite selected pet types",
 		function() return CFG.autoFavorite end,
 		function(v) CFG.autoFavorite = v; persist(); if v then ctx.startAutoFavorite() else ctx.stopAutoFavorite() end end, 1)
@@ -13019,7 +13177,7 @@ return function(ctx)
 		reg.PET_OPTIONS, CFG.favoritePetTypes, function() persist() end, 2)
 
 	-- Accordion: Automation Unfavourite Pets
-	local unfav = makeAccordion(inv, "Automation Unfavourite Pets", 4, false)
+	local unfav = makeAccordion(pInvFav, "Automation Unfavourite Pets", 2, true)
 	makeToggle(unfav, "Auto Unfavourite Pets", "Automatically unfavorite selected pet types",
 		function() return CFG.autoUnfavoritePets end,
 		function(v)
