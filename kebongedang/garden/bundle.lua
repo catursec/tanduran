@@ -1,6 +1,6 @@
 -- AUTO-GENERATED oleh tools/bundle.js — JANGAN edit manual.
 -- Edit modul-nya langsung, terus run `node tools/bundle.js`.
--- 43 modul, di-generate 2026-09-14T23:45:40.025Z
+-- 43 modul, di-generate 2026-09-16T08:25:32.397Z
 return {
 	["app.lua"] = [=[
 --[[ app.lua — init akhir garden: default tab Inventory + auto-resume automation. ]]
@@ -10078,24 +10078,24 @@ return function(ctx)
 		pad(txts, 4, 0, 0, 0)
 
 		local tLbl = mk("TextLabel", {
-			Size = UDim2.new(1, 0, 0, 19),
-			Position = UDim2.fromOffset(0, desc and 1 or 8),
+			Size = UDim2.new(1, 0, 0, 20),
+			Position = UDim2.fromOffset(0, desc and 0 or 7),
 			BackgroundTransparency = 1,
 			Text = title,
 			Font = F.bold,
-			TextSize = 13.5,
+			TextSize = 14,
 			TextColor3 = C.txt,
 			TextXAlignment = Enum.TextXAlignment.Left,
 		}, txts)
 
 		if desc then
 			local dLbl = mk("TextLabel", {
-				Size = UDim2.new(1, 0, 0, 14),
-				Position = UDim2.fromOffset(0, 20),
+				Size = UDim2.new(1, 0, 0, 15),
+				Position = UDim2.fromOffset(0, 19),
 				BackgroundTransparency = 1,
 				Text = desc,
-				Font = F.reg,
-				TextSize = 11,
+				Font = F.semi,
+				TextSize = 11.5,
 				TextColor3 = C.sub,
 				TextXAlignment = Enum.TextXAlignment.Left,
 				TextTruncate = Enum.TextTruncate.AtEnd,
@@ -10449,7 +10449,7 @@ return function(ctx)
 			end
 			if #sel == 0 then
 				valLbl.Text = "Pilih"
-				valLbl.TextColor3 = C.sub
+				valLbl.TextColor3 = C.txt
 			else
 				local txt = table.concat(sel, ", ")
 				if #txt > 20 then txt = (#sel) .. " dipilih ✦" end
@@ -10638,7 +10638,7 @@ return function(ctx)
 			local n = countSel()
 			if n == 0 then
 				valLbl.Text = "Pilih (semua)"
-				valLbl.TextColor3 = C.sub
+				valLbl.TextColor3 = C.txt
 			else
 				valLbl.Text = n .. " dipilih ✦"
 				valLbl.TextColor3 = C.accSoft
@@ -10825,7 +10825,7 @@ return function(ctx)
 			BackgroundTransparency = 1,
 			Text = title,
 			Font = F.bold,
-			TextSize = 13,
+			TextSize = 13.5,
 			TextColor3 = C.txt,
 			TextXAlignment = Enum.TextXAlignment.Left,
 		}, head)
@@ -10891,11 +10891,11 @@ return function(ctx)
 		local btn = mk("TextButton", {
 			Size = UDim2.new(1, 0, 0, 36),
 			BackgroundColor3 = C.row,
-			BackgroundTransparency = 1,
+			BackgroundTransparency = 0.5,
 			Text = "   " .. (icon or "✦") .. "  " .. name,
 			Font = F.bold,
 			TextSize = 13.5,
-			TextColor3 = C.sub,
+			TextColor3 = C.txt,
 			LayoutOrder = order,
 			AutoButtonColor = false,
 			TextXAlignment = Enum.TextXAlignment.Left,
@@ -10915,14 +10915,14 @@ return function(ctx)
 		local function setActive(isActive)
 			if isActive then
 				TS:Create(btn, TweenInfo.new(0.18), {
-					BackgroundTransparency = 0.15,
+					BackgroundTransparency = 0,
 					BackgroundColor3 = C.rowAlt,
-					TextColor3 = C.txt,
+					TextColor3 = Color3.new(1, 1, 1),
 				}):Play()
 				line.Visible = true
 			else
 				TS:Create(btn, TweenInfo.new(0.18), {
-					BackgroundTransparency = 1,
+					BackgroundTransparency = 0.5,
 					BackgroundColor3 = C.row,
 					TextColor3 = C.sub,
 				}):Play()
@@ -10932,12 +10932,12 @@ return function(ctx)
 
 		btn.MouseEnter:Connect(function()
 			if not line.Visible then
-				TS:Create(btn, TweenInfo.new(0.15), { BackgroundTransparency = 0.6, BackgroundColor3 = C.rowHover, TextColor3 = C.txt }):Play()
+				TS:Create(btn, TweenInfo.new(0.15), { BackgroundTransparency = 0.2, BackgroundColor3 = C.rowHover, TextColor3 = Color3.new(1, 1, 1) }):Play()
 			end
 		end)
 		btn.MouseLeave:Connect(function()
 			if not line.Visible then
-				TS:Create(btn, TweenInfo.new(0.15), { BackgroundTransparency = 1, TextColor3 = C.sub }):Play()
+				TS:Create(btn, TweenInfo.new(0.15), { BackgroundTransparency = 0.5, BackgroundColor3 = C.row, TextColor3 = C.sub }):Play()
 			end
 		end)
 
@@ -11060,8 +11060,8 @@ return function(ctx)
 				BackgroundTransparency = 1,
 				Text = options.defaultInfoText or "",
 				Font = F.bold,
-				TextSize = 11,
-				TextColor3 = C.sub,
+				TextSize = 12,
+				TextColor3 = C.txt,
 				TextXAlignment = Enum.TextXAlignment.Left,
 				RichText = true,
 				ZIndex = 5,
@@ -11091,7 +11091,7 @@ return function(ctx)
 				local isSel = (tid == id)
 				TS:Create(btnData.btn, TweenInfo.new(0.18), {
 					BackgroundColor3 = isSel and C.rowAlt or C.row,
-					TextColor3 = isSel and C.txt or C.sub,
+					TextColor3 = isSel and Color3.new(1, 1, 1) or C.txt,
 				}):Play()
 				btnData.stroke.Color = isSel and C.acc or C.strokeSub
 				btnData.stroke.Transparency = isSel and 0.1 or 0.6
@@ -11113,7 +11113,7 @@ return function(ctx)
 				Text = title,
 				Font = F.bold,
 				TextSize = 13,
-				TextColor3 = isDefault and C.txt or C.sub,
+				TextColor3 = isDefault and Color3.new(1, 1, 1) or C.txt,
 				LayoutOrder = i,
 				AutoButtonColor = false,
 			}, barFrame)
@@ -11122,12 +11122,12 @@ return function(ctx)
 
 			btn.MouseEnter:Connect(function()
 				if currentTab ~= id then
-					TS:Create(btn, TweenInfo.new(0.12), { BackgroundColor3 = C.rowHover, TextColor3 = C.txt }):Play()
+					TS:Create(btn, TweenInfo.new(0.12), { BackgroundColor3 = C.rowHover, TextColor3 = Color3.new(1, 1, 1) }):Play()
 				end
 			end)
 			btn.MouseLeave:Connect(function()
 				if currentTab ~= id then
-					TS:Create(btn, TweenInfo.new(0.12), { BackgroundColor3 = C.row, TextColor3 = C.sub }):Play()
+					TS:Create(btn, TweenInfo.new(0.12), { BackgroundColor3 = C.row, TextColor3 = C.txt }):Play()
 				end
 			end)
 			btn.MouseButton1Click:Connect(function()
@@ -11223,15 +11223,15 @@ return function(ctx)
 				startStroke.Thickness = 1.4
 
 				stopBtn.BackgroundColor3 = C.row
-				stopBtn.TextColor3 = C.sub
+				stopBtn.TextColor3 = C.txt
 				stopStroke.Color = C.strokeSub
-				stopStroke.Transparency = 0.6
+				stopStroke.Transparency = 0.5
 				stopStroke.Thickness = 1
 			else
 				startBtn.BackgroundColor3 = C.row
-				startBtn.TextColor3 = C.sub
+				startBtn.TextColor3 = C.txt
 				startStroke.Color = C.strokeSub
-				startStroke.Transparency = 0.6
+				startStroke.Transparency = 0.5
 				startStroke.Thickness = 1
 
 				stopBtn.BackgroundColor3 = C.rowAlt
@@ -11857,11 +11857,11 @@ return function(ctx)
 		local function updateSellTriggerBtns()
 			local isCycle = (CFG.sellMode == "Cycle")
 			bTrigCycle.BackgroundColor3 = isCycle and C.rowAlt or C.panel
-			bTrigCycle.TextColor3 = isCycle and C.accSoft or C.sub
+			bTrigCycle.TextColor3 = isCycle and Color3.new(1, 1, 1) or C.txt
 			sTrigCycleStroke.Color = isCycle and C.acc or C.strokeSub
 
 			bTrigBp.BackgroundColor3 = (not isCycle) and C.rowAlt or C.panel
-			bTrigBp.TextColor3 = (not isCycle) and C.accSoft or C.sub
+			bTrigBp.TextColor3 = (not isCycle) and Color3.new(1, 1, 1) or C.txt
 			sTrigBpStroke.Color = (not isCycle) and C.acc or C.strokeSub
 
 			cycleRow.Visible = isCycle
@@ -11936,11 +11936,11 @@ return function(ctx)
 		local function updateSellModeBtns()
 			local isAll = (CFG.sellStyle == "All at Once")
 			bOneByOne.BackgroundColor3 = (not isAll) and C.rowAlt or C.panel
-			bOneByOne.TextColor3 = (not isAll) and C.accSoft or C.sub
+			bOneByOne.TextColor3 = (not isAll) and Color3.new(1, 1, 1) or C.txt
 			sOneStroke.Color = (not isAll) and C.acc or C.strokeSub
 
 			bSellAll.BackgroundColor3 = isAll and C.rowAlt or C.panel
-			bSellAll.TextColor3 = isAll and C.accSoft or C.sub
+			bSellAll.TextColor3 = isAll and Color3.new(1, 1, 1) or C.txt
 			sAllStroke.Color = isAll and C.acc or C.strokeSub
 		end
 		updateSellModeBtns()
@@ -12052,8 +12052,8 @@ return function(ctx)
 					local function updateRuleText()
 						local curKg = tonumber(rule.kg) or 0.8
 						local curAction = tostring(rule.action or "KEEP"):upper()
-						local col = curAction == "KEEP" and "#5acc78" or "#dc5050"
-						subRuleLbl.Text = string.format("<font color=\"#8c929e\">&lt; %.2f</font> <font color=\"%s\"><b>%s</b></font> <font color=\"#8c929e\">| &gt;= %.2f BRONTO+KEEP</font>", curKg, col, curAction, curKg)
+						local col = curAction == "KEEP" and "#6ef5b9" or "#ff4b78"
+						subRuleLbl.Text = string.format("<font color=\"#ebd0eb\">&lt; %.2f</font> <font color=\"%s\"><b>%s</b></font> <font color=\"#ebd0eb\">| &gt;= %.2f BRONTO+KEEP</font>", curKg, col, curAction, curKg)
 					end
 					updateRuleText()
 
@@ -13186,21 +13186,21 @@ end
      Karakter: Midnight Velvet Rose, Shimmering Pearl, Radiant Hot Rose, Soft Neon Sakura. ]]
 return function(ctx)
 	local C = {
-		bg        = Color3.fromRGB(18, 10, 24),        -- Deep obsidian midnight plum / velvet rose
-		panel     = Color3.fromRGB(28, 15, 36),        -- Dark luxury wine/mauve (sidebar & panel)
-		row       = Color3.fromRGB(42, 22, 54),        -- Card container mewah
-		rowAlt    = Color3.fromRGB(56, 30, 72),        -- Elevated card / dropdown item
-		rowHover  = Color3.fromRGB(70, 36, 90),        -- Hover state card
-		stroke    = Color3.fromRGB(255, 75, 155),      -- Radiant rose-pink border
-		strokeSub = Color3.fromRGB(110, 52, 118),      -- Subtle border muted
-		acc       = Color3.fromRGB(255, 50, 135),      -- Hot Radiant Rose (aksen utama)
-		acc2      = Color3.fromRGB(255, 120, 195),     -- Soft Neon Sakura (gradient partner)
-		accSoft   = Color3.fromRGB(255, 180, 225),     -- Pastel Rose Shimmer
+		bg        = Color3.fromRGB(15, 9, 20),         -- Deep obsidian velvet (solid & clean)
+		panel     = Color3.fromRGB(24, 13, 31),        -- Dark luxury wine panel
+		row       = Color3.fromRGB(36, 19, 46),        -- Card container
+		rowAlt    = Color3.fromRGB(58, 28, 74),        -- Elevated card / active item
+		rowHover  = Color3.fromRGB(72, 35, 92),        -- Hover state card
+		stroke    = Color3.fromRGB(255, 95, 175),      -- Radiant rose-pink border
+		strokeSub = Color3.fromRGB(130, 68, 140),      -- Clear border outline
+		acc       = Color3.fromRGB(255, 55, 145),      -- Hot Radiant Rose (aksen utama)
+		acc2      = Color3.fromRGB(255, 135, 205),     -- Soft Neon Sakura (gradient partner)
+		accSoft   = Color3.fromRGB(255, 215, 240),     -- Pastel Rose Shimmer (teks aksen super terang)
 		glow      = Color3.fromRGB(255, 60, 145),      -- Ambient glow
-		txt       = Color3.fromRGB(255, 242, 252),     -- Pearl White Shimmer (teks utama ultra-tajam)
-		sub       = Color3.fromRGB(215, 168, 212),     -- Soft Lavender-Rose (deskripsi terbaca jelas)
+		txt       = Color3.fromRGB(255, 255, 255),     -- Pure White (teks utama ultra-tajam & kontras tinggi)
+		sub       = Color3.fromRGB(235, 205, 235),     -- Light Soft Rose-Lilac (deskripsi & label sekunder terbaca jelas!)
 		green     = Color3.fromRGB(110, 245, 185),     -- Luminous Mint-Emerald
-		red       = Color3.fromRGB(255, 65, 110),      -- Passion Crimson Rose
+		red       = Color3.fromRGB(255, 75, 120),      -- Passion Crimson Rose
 	}
 
 	local F = {
@@ -13360,13 +13360,14 @@ return function(ctx)
 		end)
 	end
 
-	----------------------------------------------------------------- Main Window (Responsive & Ultra-Legible for Android/Mobile)
+	----------------------------------------------------------------- Main Window (Landscape Compact & Ultra-Legible)
+	local DEFAULT_W, DEFAULT_H = 560, 370
 	local main = mk("Frame", {
-		Size = UDim2.new(0, 640, 0.92, 0),
+		Size = UDim2.fromOffset(DEFAULT_W, DEFAULT_H),
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.5),
 		BackgroundColor3 = C.bg,
-		BackgroundTransparency = 0.03,
+		BackgroundTransparency = 0.02,
 		BorderSizePixel = 0,
 		Active = true,
 	}, gui)
@@ -13382,16 +13383,17 @@ return function(ctx)
 	}, main)
 	corner(innerAmbient, 14)
 
-	-- Auto-scale responsif (layar HP Android 10/Arceus X/tablet/desktop)
+	-- Auto-scale responsif (layar HP Android/Arceus X/tablet/desktop)
 	local uiScale = Instance.new("UIScale"); uiScale.Parent = main
 	local function fitScale()
 		local cam = workspace.CurrentCamera
 		local vp = cam and cam.ViewportSize or Vector2.new(1280, 720)
-		local w = main.Size.X.Offset > 0 and main.Size.X.Offset or 640
-		local targetH = vp.Y * 0.92
-		-- Skala lebar jika layar sempit (< 656px)
-		local s = math.min(1, (vp.X - 16) / w, (vp.Y - 16) / targetH)
-		uiScale.Scale = math.clamp(s, 0.7, 1)
+		local w = (main.Size.X.Offset > 0) and main.Size.X.Offset or DEFAULT_W
+		local h = (main.Size.Y.Offset > 0) and main.Size.Y.Offset or DEFAULT_H
+		local sx = (vp.X - 24) / w
+		local sy = (vp.Y - 24) / h
+		local s = math.min(1.05, sx, sy)
+		uiScale.Scale = math.clamp(s, 0.45, 1.05)
 	end
 	fitScale()
 	pcall(function()
@@ -13564,8 +13566,8 @@ return function(ctx)
 		main.Size = UDim2.fromOffset(0, 0)
 		fitScale()
 		TS:Create(main, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-			Size = UDim2.new(0, 640, 0.92, 0),
-			BackgroundTransparency = 0.04,
+			Size = UDim2.fromOffset(DEFAULT_W, DEFAULT_H),
+			BackgroundTransparency = 0.02,
 		}):Play()
 	end)
 
