@@ -1,6 +1,6 @@
 -- AUTO-GENERATED oleh tools/bundle.js — JANGAN edit manual.
 -- Edit modul-nya langsung, terus run `node tools/bundle.js`.
--- 43 modul, di-generate 2026-09-16T09:12:24.223Z
+-- 43 modul, di-generate 2026-09-16T09:50:41.396Z
 return {
 	["app.lua"] = [=[
 --[[ app.lua — init akhir garden: default tab Inventory + auto-resume automation. ]]
@@ -13808,57 +13808,116 @@ return function(ctx)
 		}):Play()
 	end)
 
-	-- Floating FPS Pill
-	local fpsPill = mk("Frame", {
-		Size = UDim2.fromOffset(72, 24),
-		Position = UDim2.new(1, -156, 0, 12),
+	----------------------------------------------------------------- Dedicated FPS Monitor Card (Paten & Jelas)
+	local fpsCard = mk("Frame", {
+		Size = UDim2.fromOffset(116, 32),
+		Position = UDim2.new(1, -202, 0.5, -16),
 		BackgroundColor3 = C.row,
 		BorderSizePixel = 0,
 		ZIndex = 10,
 	}, titleBar)
-	corner(fpsPill, 12)
-	stroke(fpsPill, C.strokeSub, 1, 0.6)
+	corner(fpsCard, 10)
+	local fpsStroke = stroke(fpsCard, C.strokeSub, 1.2, 0.3)
 
-	local fpsDot = mk("Frame", {
-		Size = UDim2.fromOffset(6, 6),
-		Position = UDim2.fromOffset(8, 9),
-		BackgroundColor3 = C.green,
+	-- Accent glow line on top of card
+	local fpsGlow = mk("Frame", {
+		Size = UDim2.new(0.6, 0, 0, 2),
+		Position = UDim2.new(0.2, 0, 0, 0),
+		BackgroundColor3 = C.acc,
+		BackgroundTransparency = 0.4,
 		BorderSizePixel = 0,
 		ZIndex = 11,
-	}, fpsPill)
-	corner(fpsDot, 4)
+	}, fpsCard)
+	corner(fpsGlow, 2)
+	grad(fpsGlow, 0, C.acc, C.acc2)
 
-	local fpsLabel = mk("TextLabel", {
-		Size = UDim2.new(1, -22, 1, 0),
-		Position = UDim2.fromOffset(20, 0),
+	-- Status LED Halo & Inner Dot
+	local ledHalo = mk("Frame", {
+		Size = UDim2.fromOffset(14, 14),
+		Position = UDim2.fromOffset(10, 9),
+		BackgroundColor3 = Color3.fromRGB(80, 230, 130),
+		BackgroundTransparency = 0.75,
+		BorderSizePixel = 0,
+		ZIndex = 11,
+	}, fpsCard)
+	corner(ledHalo, 7)
+
+	local ledDot = mk("Frame", {
+		Size = UDim2.fromOffset(6, 6),
+		Position = UDim2.fromOffset(14, 13),
+		BackgroundColor3 = Color3.fromRGB(80, 230, 130),
+		BorderSizePixel = 0,
+		ZIndex = 12,
+	}, fpsCard)
+	corner(ledDot, 3)
+
+	-- Large FPS Number
+	local fpsNum = mk("TextLabel", {
+		Size = UDim2.new(0, 48, 1, 0),
+		Position = UDim2.fromOffset(26, 0),
 		BackgroundTransparency = 1,
-		Text = "60 FPS",
+		Text = "60",
+		Font = F.bold,
+		TextSize = 16,
+		TextColor3 = Color3.fromRGB(80, 230, 130),
+		TextXAlignment = Enum.TextXAlignment.Right,
+		ZIndex = 12,
+	}, fpsCard)
+
+	-- Subtitle "FPS" unit
+	local fpsUnit = mk("TextLabel", {
+		Size = UDim2.new(1, -78, 1, 0),
+		Position = UDim2.fromOffset(78, 0),
+		BackgroundTransparency = 1,
+		Text = "FPS",
 		Font = F.bold,
 		TextSize = 11,
-		TextColor3 = C.txt,
-		TextXAlignment = Enum.TextXAlignment.Center,
-		ZIndex = 11,
-	}, fpsPill)
+		TextColor3 = C.sub,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		ZIndex = 12,
+	}, fpsCard)
+
+	-- Hover animation
+	fpsCard.MouseEnter:Connect(function()
+		TS:Create(fpsStroke, TweenInfo.new(0.2), { Color = C.acc, Transparency = 0 }):Play()
+		TS:Create(fpsCard, TweenInfo.new(0.2), { BackgroundColor3 = C.rowAlt }):Play()
+	end)
+	fpsCard.MouseLeave:Connect(function()
+		TS:Create(fpsStroke, TweenInfo.new(0.2), { Color = C.strokeSub, Transparency = 0.3 }):Play()
+		TS:Create(fpsCard, TweenInfo.new(0.2), { BackgroundColor3 = C.row }):Play()
+	end)
 
 	do
 		local RunService = game:GetService("RunService")
 		local frameCount = 0
 		local lastUpdate = tick()
-		RunService.RenderStepped:Connect(function()
-			frameCount += 1
+		local fpsConn
+		fpsConn = RunService.RenderStepped:Connect(function()
+			if not ctx.state.isAlive then
+				if fpsConn then fpsConn:Disconnect(); fpsConn = nil end
+				return
+			end
+			frameCount = frameCount + 1
 			local now = tick()
-			if now - lastUpdate >= 1 then
-				local fps = math.round(frameCount / (now - lastUpdate))
-				fpsLabel.Text = fps .. " FPS"
-				if fps >= 45 then
-					fpsDot.BackgroundColor3 = C.green
-					fpsLabel.TextColor3 = C.txt
-				elseif fps >= 25 then
-					fpsDot.BackgroundColor3 = Color3.fromRGB(255, 200, 80)
-					fpsLabel.TextColor3 = Color3.fromRGB(255, 200, 80)
+			local diff = now - lastUpdate
+			if diff >= 0.5 then
+				local fps = math.clamp(math.round(frameCount / diff), 1, 999)
+				fpsNum.Text = tostring(fps)
+				if fps >= 50 then
+					local col = Color3.fromRGB(80, 230, 130)
+					ledHalo.BackgroundColor3 = col
+					ledDot.BackgroundColor3 = col
+					fpsNum.TextColor3 = col
+				elseif fps >= 30 then
+					local col = Color3.fromRGB(250, 195, 60)
+					ledHalo.BackgroundColor3 = col
+					ledDot.BackgroundColor3 = col
+					fpsNum.TextColor3 = col
 				else
-					fpsDot.BackgroundColor3 = C.red
-					fpsLabel.TextColor3 = C.red
+					local col = Color3.fromRGB(250, 80, 80)
+					ledHalo.BackgroundColor3 = col
+					ledDot.BackgroundColor3 = col
+					fpsNum.TextColor3 = col
 				end
 				frameCount = 0
 				lastUpdate = now
